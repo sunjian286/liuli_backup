@@ -1,0 +1,2096 @@
+<!DOCTYPE html>
+<html class="
+">
+  <head>
+    <meta name="wechat-enable-text-zoom-em" content="true">
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="color-scheme" content="light dark">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=0,viewport-fit=cover">
+<link rel="shortcut icon" type="image/x-icon" href="//res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico" reportloaderror>
+<link rel="mask-icon" href="//res.wx.qq.com/a/wx_fed/assets/res/MjliNWVm.svg" color="#4C4C4C" reportloaderror>
+<link rel="apple-touch-icon-precomposed" href="//res.wx.qq.com/a/wx_fed/assets/res/OTE0YTAw.png" reportloaderror>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="format-detection" content="telephone=no">
+<script  nonce="1963225876" reportloaderror>try{document.getElementsByTagName('html').item(0).style.webkitTextSizeAdjust=JSON.parse(window.__wxWebEnv.getEnv()).fontScale+'%'}catch(e){}</script>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+  window.logs = { pagetime: {} };
+  window.logs.pagetime['html_begin'] = (+new Date());
+  window.LANG = "zh_CN"; // 页面语言 zh_CN en_US
+</script>
+
+    <script type="text/javascript" nonce="1963225876" reportloaderror>
+/**
+ * 于2022-02-21重构vite
+ * 仅保留原有moon.js中上报相关的部分
+ * @author baakqiu
+ * @date 2022-02-21
+ */
+
+var WX_BJ_REPORT = window.WX_BJ_REPORT || {};
+(function(_) {
+  if (_.BadJs) {
+    return;
+  }
+  //onerror上报名 
+  var BADJS_WIN_ERR = 'BadjsWindowError';
+  var extend = function(source, destination) {
+    for (var property in destination) {
+      source[property] = destination[property]
+    }
+    return source
+  }
+  /*
+    出错上报字段:mid name key  msg  stack file col line uin
+    mid 模块名
+    name 监控名
+    key 特征值
+    msg 额外信息
+  */
+  _.BadJs = {
+    uin: 0,
+    mid: "",
+    view: "wap",
+    _cache: {}, //上报_cache 同一mid name key 只会上报一次
+    _info: {}, // 打点记录 会写入msg帮助定位
+    _hookCallback: null,
+    ignorePath: true,
+    throw: function(e, extData) {
+      this.onError(e, extData);
+      throw e;
+    },
+    //接收异常并上报处理 如果有额外信息可以放在第二个参数_data中
+    // _data 只能覆盖上报协议的字段mid （name,key 不建议通过data覆盖） msg  stack file col line uin
+    onError: function(e, extData) {
+      try {
+        //标记已执行的throw
+        if (e.BADJS_EXCUTED == true) {
+          return;
+        }
+        e.BADJS_EXCUTED = true;
+        var data = errToData(e);
+        data.uin = this.uin;
+        data.mid = this.mid;
+        data.view = this.view;
+        data.cmdb_module = 'mmbizwap';
+        //data.msg = msg || data.msg;
+        if (!!extData) {
+          data = extend(data, extData);
+        }
+        //如果cid存在 将cid合并到key
+        if (data.cid) {
+          data.key = "[" + data.cid + "]:" + data.key;
+        }
+        
+        if (data._info) {
+          if (Object.prototype.toString.call(data._info) == "[object Object]") {
+            data.msg += " || info:" + JSON.stringify(data._info);
+          } else if (Object.prototype.toString.call(data._info) == "[object String]") {
+            data.msg += " || info:" + data._info;
+          } else {
+            data.msg += " || info:" + data._info;
+          }
+        }
+        if (typeof this._hookCallback == "function") {
+          if (this._hookCallback(data) === false) {
+            return
+          }
+        }
+        this._send(data);
+        return _.BadJs;
+      } catch (e) {
+        console.error(e);
+      }
+    },
+    winErr: function(event) {
+      if (event.error && event.error.BADJS_EXCUTED) {
+        return;
+      }
+      if (event.type === 'unhandledrejection') {
+        _.BadJs.onError(createError(event.type, event.reason, "", "", "", event.reason));
+      }else{
+        _.BadJs.onError(createError(BADJS_WIN_ERR, event.message, event.filename, event.lineno, event.colno, event.error));
+      }
+    },
+    init: function(uin, mid, view) {
+      this.uin = uin || this.uin;
+      this.mid = mid || this.mid;
+      this.view = view || this.view;
+      return _.BadJs;
+    },
+    //钩子函数
+    hook: function(fn) {
+      this._hookCallback = fn;
+      return _.BadJs;
+    },
+    _send: function(data) {
+      //hack uin mid
+      if (!data.mid) {
+        if (typeof window.PAGE_MID !== 'undefined' && window.PAGE_MID) {
+          data.mid = window.PAGE_MID;
+        } else {
+          return;
+        }
+      }
+      if (!data.uin) {
+        data.uin = window.user_uin || 0;
+      }
+      // 发送要去重 
+      var flag = [data.mid, data.name, data.key].join("|");
+      if (this._cache && this._cache[flag]) {
+        return
+      } else {
+        this._cache && (this._cache[flag] = true);
+        this._xhr(data);
+      }
+      return _.BadJs;
+    },
+    _xhr: function(data) {
+      //console.log(data);
+      var xmlobj;
+      if (window.ActiveXObject) {
+        try {
+          xmlobj = new ActiveXObject("Msxml2.XMLHTTP");
+        } catch (e) {
+          try {
+            xmlobj = new ActiveXObject("Microsoft.XMLHTTP");
+          } catch (E) {
+            xmlobj = false;
+          }
+        }
+      } else if (window.XMLHttpRequest) {
+        xmlobj = new XMLHttpRequest();
+      }
+      var param = "";
+      for (var key in data) {
+        if (key && data[key]) {
+          param += [key, "=", encodeURIComponent(data[key]), "&"].join("");
+        }
+      }
+      if (xmlobj && typeof xmlobj.open == "function") {
+        xmlobj.open("POST", "https://badjs.weixinbridge.com/report", true);
+        xmlobj.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        xmlobj.onreadystatechange = function(status) {};
+        xmlobj.send(param.slice(0, -1));
+      } else {
+        var img = new Image();
+        img.src = "https://badjs.weixinbridge.com/report?" + param;
+      }
+    },
+    // key是特征值 默认上报msg就是key，也可以主动传msg包含更多上报信息 
+    report: function(name, key, data) {
+      this.onError(createError(name, key), data);
+      return this;
+    },
+    // 打点标记
+    mark: function(info) {
+      this._info = extend(this._info, info);
+    },
+    nocache: function() {
+      this._cache = false;
+      return _.BadJs;
+    }
+  }
+  function createError(name, msg, url, line, col, error) {
+    return {
+      name: name || "",
+      message: msg || "",
+      file: url || "",
+      line: line || "",
+      col: col || "",
+      stack: (error && error.stack) || "",
+    }
+  }
+  //将异常错误转换成上报协议支持的字段
+  /*
+  * 先取e对象上的file line col等字段
+  * 再解析e.statck
+  * name 错误大类 默认取badjs_try_err|badjs_win_err
+  * key  错误标识 e.message
+  * msg  错误信息 e.message
+  * stack 错误堆栈 e.stack
+  * file 错误发生的文件
+  * line 行
+  * col 列
+  * client_version
+  */
+  function errToData(e) {
+    var _stack = parseStack(e);
+    return {
+      name: e.name,
+      key: e.message,
+      msg: e.message,
+      stack: _stack.info,
+      file: _stack.file,
+      line: _stack.line,
+      col: _stack.col,
+      client_version: "",
+      _info: e._info
+    }
+  }
+  function parseStack(e) {
+    e._info = e._info || ""; // 当前错误的额外信息 最终上报到info
+    var stack = e.stack || "";
+    var _stack = {
+      info: stack,
+      file: e.file || "",
+      line: e.line || "",
+      col: e.col || "",
+    };
+    if (_stack.file == "") {
+      // 提取file line col
+      var stackArr = stack.split(/\bat\b/);
+      if (stackArr && stackArr[1]) {
+        var match = /(https?:\/\/[^\n]+)\:(\d+)\:(\d+)/.exec(stackArr[1]);
+        if (match) {
+          //若stack提取的file line col跟e中的属性不一致，以stack为准 但在e._info中记录原始数据
+          if (match[1] && match[1] != _stack.file) {
+            _stack.file && (e._info += " [file: " + _stack.file + " ]");
+            _stack.file = match[1];
+          }
+          if (match[2] && match[2] != _stack.line) {
+            _stack.line && (e._info += " [line: " + _stack.line + " ]");
+            _stack.line = match[2];
+          }
+          if (match[3] && match[3] != _stack.col) {
+            _stack.col && (e._info += " [col: " + _stack.col + " ]");
+            _stack.col = match[3];
+          }
+        }
+      }
+    }
+    //替换堆栈中的文件路径 combojs太长
+    if (_stack && _stack.file && _stack.file.length > 0) {
+      _stack.info = _stack.info.replace(new RegExp(_stack.file.split("?")[0], "gi"), "__FILE__")
+    }
+    //堆栈路径只保存文件名
+    if (_.BadJs.ignorePath) {
+      _stack.info = _stack.info.replace(/http(s)?\:[^:\n]*\//ig, "").replace(/\n/gi, "");
+    }
+    return _stack;
+  }
+  //兜底方法
+  window.addEventListener && window.addEventListener('error', _.BadJs.winErr);
+  window.addEventListener && window.addEventListener('unhandledrejection', _.BadJs.winErr);
+  return _.BadJs;
+})(WX_BJ_REPORT);
+window.WX_BJ_REPORT = WX_BJ_REPORT;
+/**
+ * 兼容wap项目的简单CMD管理
+ * 所有wap项目必须包含此文件才可以执行成功
+ * 暴露在全局的变量仍然以seajs为命名空间，跟web项目保持一致
+ * 支持的API是seajs.use，以及require define
+ * @author raphealguo
+ * @date 20140326
+ */
+function __moonf__() {
+  if (window.__moonhasinit) return;
+  window.__moonhasinit = true;
+  window.__moonclientlog = []; // moon中存到客户端日志里面的内容，最终写入到客户端的地点在fereport.js
+  if (typeof JSON != "object") { //针对IE7的hack
+    window.JSON = {
+      stringify: function() { return ""; },
+      parse: function() { return {}; }
+    };
+  }
+  var moon_init = function() {
+    // 前端的@cunjinli
+    (function() {
+      // @cunjinli 重写alert函数, moonsafe监控
+      var _alert = window.alert;
+      window.__alertList = [];
+      window.alert = function(msg) {
+        _alert(msg);
+        window.__alertList.push(msg);
+      };
+    })();
+    /**
+     * mooncatch
+     * 对各种异步回调都使用try catch错误上报
+     * @radeonwu raphealguo
+     */
+    (function() {
+      var inWx = (/MicroMessenger/i).test(navigator.userAgent);
+      var inMp = (/MPAPP/i).test(navigator.userAgent);
+      var _idkey = 121261; //上报的idkey 添加默认上报值
+      var _startKey; //开始的key
+      var _limit; //上报的key的长度
+      var _badjsId;
+      var _reportOpt; //上报的额外信息
+      var _extInfo; //附加的预留字段，如网络采样率采样率network_rate， 总体上报率rate
+      var MOON_LISTENER_ERROR_KEY_OFFSET = 2; //addEventListener上报时的偏移量为2
+      var MOON_AJAX_NETWORK_OFFSET = 4; //network错误时的上报偏移量为4，这里在ajax.js中上报，这里需要加入采样率
+      var MOON_ASYNC_ERROR_KEY_OFFSET = 9; //setTimeout和setInterval上报时的偏移量为9
+      var MOON_LOCALSTORAGE_ERROR_KEY_OFFSET = 10; //localstorage.setItem失败时的偏移量为10
+      window.__initCatch = function(opt) {
+        _idkey = opt.idkey;
+        _startKey = opt.startKey || 0;
+        _limit = opt.limit;
+        _badjsId = opt.badjsId;
+        _reportOpt = opt.reportOpt || "";
+        _extInfo = opt.extInfo || {};
+        _extInfo.rate = _extInfo.rate || 0.5;
+      }
+      //暴露的上报函数，供core.js和ajax.js上报错误使用，array = [{offset:MOON_JSAPI_KEY_OFFSET, log:"ready", e:e}]
+      window.__moon_report = function(array, rate_opt) {
+        var isAcrossOrigin = false;
+        var href = '';
+        try {
+          href = top.location.href;
+        } catch (e) {
+          isAcrossOrigin = true;
+        }
+        var rate = 0.5;
+        if (!!_extInfo && !!_extInfo.rate) {
+          rate = _extInfo.rate;
+        }
+        if (!!rate_opt && (typeof rate_opt == 'number')) {
+          rate = rate_opt;
+        }
+        if (
+          (!(/mp\.weixin\.qq\.com/).test(location.href) && !(/payapp\.weixin\.qq\.com/).test(location.href)) ||
+          Math.random() > rate ||
+          !(inWx || inMp) ||
+          (top != window && !isAcrossOrigin && !(/mp\.weixin\.qq\.com/).test(href))
+        ) {
+          //return ;
+        }
+        if (isObject(array))
+          array = [array];
+        if (!isArray(array) || _idkey == '')
+          return;
+        var data = "";
+        var log = []; //存放array中每个对象关联的log
+        var key = []; //存放array中每个上报的key
+        var val = []; //存放array中每个上报的value
+        var idkey = [];
+        //如果这里没有opt.limit，直接上报到startKey
+        if (typeof _limit != "number") {
+          _limit = Infinity;
+        }
+        for (var i = 0; i < array.length; i++) {
+          var item = array[i] || {};
+          if (item.offset > _limit) continue; //上报的偏移量超过limit
+          if (typeof item.offset != "number") continue;
+          if (item.offset == MOON_AJAX_NETWORK_OFFSET && !!_extInfo && !!_extInfo.network_rate && Math.random() >= _extInfo.network_rate) {
+            continue;
+          }
+          //log[i] = item.log || "";
+          var k = _limit == Infinity ? _startKey : (_startKey + item.offset);
+          log[i] = (("[moon]" + _idkey + "_" + k + ";") + item.log + ";" + getErrorMessage(item.e || {})) || "";
+          key[i] = k;
+          val[i] = 1;
+        }
+        for (var j = 0; j < key.length; j++) {
+          idkey[j] = _idkey + "_" + key[j] + "_" + val[j];
+          data = data + "&log" + j + "=" + log[j];
+        }
+        if (idkey.length > 0) {
+          // sendReport("idkey=" + idkey.join(";") + "&lc=" + log.length + data);
+          sendReport("POST", location.protocol + '//mp.weixin.qq.com/mp/jsmonitor?', "idkey=" + idkey.join(";") + "&r=" + Math.random() + "&lc=" + log.length + data);
+          // 把图文消息的错误上报一份到badjs，只支持get请求
+          // 这里由于量比较大，把badjs的内层怼爆了，这里加多一个采样，并且去掉用户的信息
+          var rate = 1;
+          if (_extInfo && _extInfo.badjs_rate) { // 初始化时的badjs采样率
+            rate = _extInfo.badjs_rate;
+          }
+          if (Math.random() < rate) {
+            data = data.replace(/uin\:(.)*\|biz\:(.)*\|mid\:(.)*\|idx\:(.)*\|sn\:(.)*\|/, '');
+            if(!!_badjsId){
+              var _img = new Image();
+              var _src = 'https://badjs.weixinbridge.com/badjs?id=' + _badjsId + '&level=4&from=' + encodeURIComponent(location.host) + '&msg=' + encodeURIComponent(data);
+              _img.src = _src.slice(0, 1024);
+            }
+            // badjs同时报一份到新监控 
+            if (typeof WX_BJ_REPORT != "undefined" && WX_BJ_REPORT.BadJs) {
+              for (var i = 0; i < array.length; i++) {
+                var item = array[i] || {};
+                if (item.e) {
+                  WX_BJ_REPORT.BadJs.onError(item.e,{_info:item.log});
+                } else {
+                  var name = /[^:;]*/.exec(item.log)[0];
+                  WX_BJ_REPORT.BadJs.report(name, item.log, { mid: "mmbizwap:Monitor" });
+                }
+              }
+            }
+          } else {
+            //虽然采样没有执行 但实际是有被BadJs.onError，置位一下
+            for (var i = 0; i < array.length; i++) {
+              var item = array[i] || {};
+              if (item.e) {
+                item.e.BADJS_EXCUTED = true;
+              }
+            }
+          }
+        }
+      }
+      function isArray(obj) { //判断输入是否为数组
+        return Object.prototype.toString.call(obj) === '[object Array]';
+      }
+      function isObject(obj) { //判断输入是否为对象
+        return Object.prototype.toString.call(obj) === '[object Object]';
+      }
+      function getErrorMessage(e) {
+        var stack = e.stack + ' ' + e.toString() || ""; //错误堆栈信息
+        try {
+          //先取出res域名
+          if (!window.testenv_reshost) {
+            stack = stack.replace(/http(s)?:\/\/res\.wx\.qq\.com/g, "");
+          } else {
+            var host = 'http(s)?://' + window.testenv_reshost;
+            var reg = new RegExp(host, 'g');
+            stack = stack.replace(reg, "");
+          }
+          //提取最后一个.js前边的
+          var reg = /\/([^.]+)\/js\/(\S+?)\.js(\,|:)?/g;
+          while (reg.test(stack)) {
+            // stack = stack.replace(reg, "3"); 解决$问题
+            stack = stack.replace(reg, function(a, b, c, d, e, f) {
+              return c + d
+            });
+          }
+        } catch (e) {
+          stack = e.stack ? e.stack : "" //错误堆栈信息
+        }
+        var ret = [];
+        for (o in _reportOpt) {
+          if (_reportOpt.hasOwnProperty(o)) {
+            ret.push(o + ":" + _reportOpt[o]);
+          }
+        }
+        ret.push("STK:" + stack.replace(/\n/g, ""));
+        return ret.join("|");
+      }
+      function sendReport(type, url, data) { //post方法用于提交数据
+        if (!/^mp\.weixin\.qq\.com$/.test(location.hostname)) { //非MP域名使用 img方式上报
+          var tmp = [];
+          data = data.replace(location.href, (location.origin || "") + (location.pathname || "")).replace("#wechat_redirect", "").replace("#rd", "").split("&");
+          for (var i = 0, il = data.length; i < il; i++) {
+            var a = data[i].split("=");
+            if (!!a[0] && !!a[1]) {
+              tmp.push(a[0] + "=" + encodeURIComponent(a[1]));
+            }
+          }
+          var _img = new window.Image();
+          _img.src = (url + tmp.join("&")).substr(0, 1024);
+          return;
+        }
+        var xmlobj; //定义XMLHttpRequest对象  
+        if (window.ActiveXObject) { //如果当前浏览器支持Active Xobject，则创建ActiveXObject对象    
+          try {
+            xmlobj = new ActiveXObject("Msxml2.XMLHTTP");
+          } catch (e) {
+            try {
+              xmlobj = new ActiveXObject("Microsoft.XMLHTTP");
+            } catch (E) {
+              xmlobj = false;
+            }
+          }
+        } else if (window.XMLHttpRequest) { //如果当前浏览器支持XMLHttpRequest，则创建XMLHttpRequest对象  
+          xmlobj = new XMLHttpRequest();
+        }
+        if (!xmlobj) return;
+        //xmlobj.open("POST", location.protocol + "//mp.weixin.qq.com/mp/jsmonitor?", true);         
+        xmlobj.open(type, url, true);
+        xmlobj.setRequestHeader("cache-control", "no-cache");
+        xmlobj.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8"); //设置请求头信息              
+        xmlobj.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+        xmlobj.send(data); //发送数据  
+      }
+      function catTimeout(foo) {
+        return function(cb, timeout) {
+          if (typeof cb === 'string') {
+            try {
+              cb = new Function(cb);
+            } catch (err) {
+              throw err;
+            }
+          }
+          var args = [].slice.call(arguments, 2);
+          var _cb = cb;
+          cb = function() {
+            try {
+              return _cb.apply(this, (args.length && args) || arguments);
+            } catch (error) {
+              if (error.stack && console && console.error) { //chrome有bug，特定情况下看不到throw的error，这里console.error下，防止给调试留坑
+                console.error("[TryCatch]" + error.stack);
+              }
+              if (!!_idkey && !!window.__moon_report) { //没有初始化_key，直接throw error
+                //sendReport(error);
+                window.__moon_report([{ offset: MOON_ASYNC_ERROR_KEY_OFFSET, log: "timeout_error;host:" + location.host, e: error }]);
+                //breakOnError(timeoutkey);
+              }
+              throw error;
+            }
+          }
+          return foo(cb, timeout);
+        };
+      };
+      window.setTimeout = catTimeout(window.setTimeout);
+      window.setInterval = catTimeout(window.setInterval);
+      if (Math.random() < 0.01 && !!window.Document && !!window.HTMLElement) {
+        var cb_map = {};
+        var moon_lid = 0;
+        function catAddListener(foo) {
+          return function(type, cb, useCapture) {
+            if (typeof useCapture === "undefined") {
+              var useCapture = false;
+            }
+            var that = this;
+            var _cb = cb || function() {};
+            cb = function() {
+              try {
+                //arguments[0].currentTarget.setAttribute("data-moon_lid") = moon_lid;
+                //_cb.moon_lid = moon_lid;
+                return _cb.apply(that, arguments);
+              } catch (error) {
+                if (error.stack && console && console.error) { //chrome有bug，特定情况下看不到throw的error，这里console.error下，防止给调试留坑
+                  console.error("[TryCatch]" + error.stack);
+                }
+                if (!!_idkey && !!window.__moon_report) { //没有初始化_key，直接throw error
+                  window.__moon_report([{ offset: MOON_LISTENER_ERROR_KEY_OFFSET, log: "listener_error;type:" + type + ";host:" + location.host, e: error }]);
+                  //breakOnError(timeoutkey);
+                }
+                throw error;
+              }
+            }
+            _cb.moon_lid = moon_lid;
+            cb_map[moon_lid] = cb;
+            moon_lid++;
+            return foo.call(that, type, cb, useCapture);
+          }
+        }
+        function catRemoveListener(foo) {
+          return function(type, cb, useCapture) {
+            if (typeof useCapture === "undefined") {
+              var useCapture = false;
+            }
+            var that = this;
+            cb = cb_map[cb.moon_lid];
+            return foo.call(that, type, cb, useCapture);
+          }
+        }
+        Document.prototype.addEventListener = catAddListener(Document.prototype.addEventListener);
+        Document.prototype.removeEventListener = catRemoveListener(Document.prototype.removeEventListener);
+        HTMLElement.prototype.addEventListener = catAddListener(HTMLElement.prototype.addEventListener);
+        HTMLElement.prototype.removeEventListener = catRemoveListener(HTMLElement.prototype.removeEventListener);
+      }
+      //alert("setItem begin");
+      //window.localStorage.setItem = function(){a=c;}//故意
+      var ua = window.navigator.userAgent;
+      if ((/ip(hone|ad|od)/i.test(ua) || /android/i.test(ua)) && !/windows phone/i.test(ua) && !!window.localStorage && !!window.localStorage.setItem) {
+        var _setItem = window.localStorage.setItem;
+        var count = 0;
+        window.localStorage.setItem = function(k, v) {
+          if (count >= 10) { //一直失败 不要再继续试了，可能类似safari无痕模式 不允许写入了
+            return;
+          }
+          try {
+            _setItem.call(window.localStorage, k, v);
+          } catch (error) {
+            //alert(error);
+            if (error.stack && console && console.error) { //chrome有bug，特定情况下看不到throw的error，这里console.error下，防止给调试留坑
+              console.error("[TryCatch]" + error.stack);
+            }
+            window.__moon_report([{ offset: MOON_LOCALSTORAGE_ERROR_KEY_OFFSET, log: "localstorage_error;" + error.toString(), e: error }]);
+            count++;
+            if (count >= 3 && !!window.moon && window.moon.clear) {
+              // 可能爆满 清理一下localstorage
+              moon.clear();
+            }
+          }
+        }
+        //alert("setItem end");
+      }
+    })();
+    // 后面的@cunjinli
+  };
+  moon_init();
+  //由于moon异步化，所以有些逻辑需要moon加载完之后才执行的 放到全局callback函数__moon_initcallback里边
+  (!!window.__moon_initcallback) && (window.__moon_initcallback());
+}
+// 为适应inline逻辑，有map时才主动自执行 @zhikaimai
+// if (typeof window.moon_map == 'object') {
+//     __moonf__();
+// }
+__moonf__();
+
+if (!!window.addEventListener){
+  window.addEventListener("load",function(){
+    var MOON_SCRIPT_ERROR_KEY_OFFSET = 1; //script上报时的偏移量为1
+    var ns = document.querySelectorAll("[reportloaderror]");
+    for(var ni=0,nl=ns.length;ni<nl;ni++)
+      ns[ni].onerror=function(ev){
+        window.__moon_report([{ offset: MOON_SCRIPT_ERROR_KEY_OFFSET, log: "load_script_error:" + ev.target.src, e: new Error('LoadResError') }], 1);
+        window.WX_BJ_REPORT.BadJs.report("load_script_error", ev.target.src, { mid: "mmbizwap:Monitor" });
+      };
+  });
+}
+</script>
+
+    
+
+  
+  <meta name="description" content="" />
+  <meta name="author" content="布克布克" />
+
+  
+  <meta property="og:title" content="【2022.7.19】图书推荐" />
+  <meta property="og:url" content="" />
+  <meta property="og:image" content="http://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8aTYHBBJXAJ5CDfYyQiaj2OpzAsozUXCqNL8Hsz2nsj4BrEibGMFnvABA/0?wx_fmt=jpeg" />
+  <meta property="og:description" content="" />
+  <meta property="og:site_name" content="微信公众平台" />
+  <meta property="og:type" content="article" />
+  <meta property="og:article:author" content="布克布克" />
+
+  
+  <meta property="twitter:card" content="summary" />
+  <meta property="twitter:image" content="http://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8aTYHBBJXAJ5CDfYyQiaj2OpzAsozUXCqNL8Hsz2nsj4BrEibGMFnvABA/0?wx_fmt=jpeg" />
+  <meta property="twitter:title" content="【2022.7.19】图书推荐" />
+  <meta property="twitter:creator" content="布克布克" />
+  <meta property="twitter:site" content="微信公众平台" />
+  <meta property="twitter:description" content="" />
+
+
+    <title></title>
+    <script type="text/javascript" nonce="1963225876" reportloaderror>!function(){"use strict";var t=window.WebKitMutationObserver||window.MutationObserver||window.MozMutationObserver,e=0===location.href.indexOf("http://"),r=function(t){if(t){var e=t.match(/http(?:s)?:\/\/([^\/]+?)(\/|$)/);if(e&&!/qq\.com(\:8080)?$/.test(e[1])&&!/weishi\.com$/.test(e[1]))return!0}return!1};-1===location.href.indexOf("safe=0")&&e&&"function"==typeof t&&"mp.weixin.qq.com"===location.host&&(window.__observer_data={count:0,exec_time:0,list:[]},window.__observer=new t((function(t){window.__observer_data.count++;var e=new Date,o=[];t.forEach((function(t){for(var e=t.addedNodes,n=0;n<e.length;n++){var i=e[n];if("SCRIPT"===i.tagName){var _=i.src;r(_)&&(window.__observer_data.list.push(_),o.push(i)),!_&&window.__nonce_str&&i.getAttribute("nonce")!=window.__nonce_str&&(window.__observer_data.list.push("inlinescript_without_nonce"),o.push(i))}}}));for(var n=0;n<o.length;n++){var i=o[n];i.parentNode&&i.parentNode.removeChild(i)}window.__observer_data.exec_time+=new Date-e})),window.__observer.observe(document,{subtree:!0,childList:!0})),function(){if(-1===location.href.indexOf("safe=0")&&Math.random()<.01&&e&&HTMLScriptElement.prototype.__lookupSetter__&&void 0!==Object.defineProperty){window.__danger_src={xmlhttprequest:[],script_src:[],script_setAttribute:[]};var t="$"+Math.random(),o="Setter__";HTMLScriptElement.prototype.__old_method_script_src=HTMLScriptElement.prototype["__lookup"+o]("src"),HTMLScriptElement.prototype["__define"+o]("src",(function(t){t&&r(t)&&window.__danger_src.script_src.push(t),this.__old_method_script_src(t)}));var n="__setAttribute"+t;Object.defineProperty(Element.prototype,n,{value:Element.prototype.setAttribute,enumerable:!1}),Element.prototype.setAttribute=function(t,e){"SCRIPT"===this.tagName&&"src"===t&&r(e)&&window.__danger_src.script_setAttribute.push(e),this[n](t,e)}}}()}();</script><script type="text/javascript" secondopen="false" nonce="1963225876" reportloaderror>!function(e,t){"object"==typeof exports&&"object"==typeof module?module.exports=t():"function"==typeof define&&define.amd?define("Darkmode",[],t):"object"==typeof exports?exports.Darkmode=t():e.Darkmode=t()}(window,(function(){return function(e){var t={};function r(n){if(t[n])return t[n].exports;var a=t[n]={i:n,l:!1,exports:{}};return e[n].call(a.exports,a,a.exports,r),a.l=!0,a.exports}return r.m=e,r.c=t,r.d=function(e,t,n){r.o(e,t)||Object.defineProperty(e,t,{enumerable:!0,get:n})},r.r=function(e){"undefined"!=typeof Symbol&&Symbol.toStringTag&&Object.defineProperty(e,Symbol.toStringTag,{value:"Module"}),Object.defineProperty(e,"__esModule",{value:!0})},r.t=function(e,t){if(1&t&&(e=r(e)),8&t)return e;if(4&t&&"object"==typeof e&&e&&e.__esModule)return e;var n=Object.create(null);if(r.r(n),Object.defineProperty(n,"default",{enumerable:!0,value:e}),2&t&&"string"!=typeof e)for(var a in e)r.d(n,a,function(t){return e[t]}.bind(null,a));return n},r.n=function(e){var t=e&&e.__esModule?function(){return e.default}:function(){return e};return r.d(t,"a",t),t},r.o=function(e,t){return Object.prototype.hasOwnProperty.call(e,t)},r.p="",r(r.s=9)}([function(e,t,r){"use strict";var n=r(3),a=r(6),o=[].slice,i=["keyword","gray","hex"],l={};Object.keys(a).forEach((function(e){l[o.call(a[e].labels).sort().join("")]=e}));var s={};function u(e,t){if(!(this instanceof u))return new u(e,t);if(t&&t in i&&(t=null),t&&!(t in a))throw new Error("Unknown model: "+t);var r,c;if(null==e)this.model="rgb",this.color=[0,0,0],this.valpha=1;else if(e instanceof u)this.model=e.model,this.color=e.color.slice(),this.valpha=e.valpha;else if("string"==typeof e){var h=n.get(e);if(null===h)throw new Error("Unable to parse color from string: "+e);this.model=h.model,c=a[this.model].channels,this.color=h.value.slice(0,c),this.valpha="number"==typeof h.value[c]?h.value[c]:1}else if(e.length){this.model=t||"rgb",c=a[this.model].channels;var f=o.call(e,0,c);this.color=d(f,c),this.valpha="number"==typeof e[c]?e[c]:1}else if("number"==typeof e)e&=16777215,this.model="rgb",this.color=[e>>16&255,e>>8&255,255&e],this.valpha=1;else{this.valpha=1;var g=Object.keys(e);"alpha"in e&&(g.splice(g.indexOf("alpha"),1),this.valpha="number"==typeof e.alpha?e.alpha:0);var b=g.sort().join("");if(!(b in l))throw new Error("Unable to parse color from object: "+JSON.stringify(e));this.model=l[b];var p=a[this.model].labels,y=[];for(r=0;r<p.length;r++)y.push(e[p[r]]);this.color=d(y)}if(s[this.model])for(c=a[this.model].channels,r=0;r<c;r++){var m=s[this.model][r];m&&(this.color[r]=m(this.color[r]))}this.valpha=Math.max(0,Math.min(1,this.valpha)),Object.freeze&&Object.freeze(this)}function c(e,t,r){return(e=Array.isArray(e)?e:[e]).forEach((function(e){(s[e]||(s[e]=[]))[t]=r})),e=e[0],function(n){var a;return arguments.length?(r&&(n=r(n)),(a=this[e]()).color[t]=n,a):(a=this[e]().color[t],r&&(a=r(a)),a)}}function h(e){return function(t){return Math.max(0,Math.min(e,t))}}function f(e){return Array.isArray(e)?e:[e]}function d(e,t){for(var r=0;r<t;r++)"number"!=typeof e[r]&&(e[r]=0);return e}u.prototype={toString:function(){return this.string()},toJSON:function(){return this[this.model]()},string:function(e){var t=this.model in n.to?this:this.rgb(),r=1===(t=t.round("number"==typeof e?e:1)).valpha?t.color:t.color.concat(this.valpha);return n.to[t.model](r)},percentString:function(e){var t=this.rgb().round("number"==typeof e?e:1),r=1===t.valpha?t.color:t.color.concat(this.valpha);return n.to.rgb.percent(r)},array:function(){return 1===this.valpha?this.color.slice():this.color.concat(this.valpha)},object:function(){for(var e={},t=a[this.model].channels,r=a[this.model].labels,n=0;n<t;n++)e[r[n]]=this.color[n];return 1!==this.valpha&&(e.alpha=this.valpha),e},unitArray:function(){var e=this.rgb().color;return e[0]/=255,e[1]/=255,e[2]/=255,1!==this.valpha&&e.push(this.valpha),e},unitObject:function(){var e=this.rgb().object();return e.r/=255,e.g/=255,e.b/=255,1!==this.valpha&&(e.alpha=this.valpha),e},round:function(e){return e=Math.max(e||0,0),new u(this.color.map(function(e){return function(t){return function(e,t){return Number(e.toFixed(t))}(t,e)}}(e)).concat(this.valpha),this.model)},alpha:function(e){return arguments.length?new u(this.color.concat(Math.max(0,Math.min(1,e))),this.model):this.valpha},red:c("rgb",0,h(255)),green:c("rgb",1,h(255)),blue:c("rgb",2,h(255)),hue:c(["hsl","hsv","hsl","hwb","hcg"],0,(function(e){return(e%360+360)%360})),saturationl:c("hsl",1,h(100)),lightness:c("hsl",2,h(100)),saturationv:c("hsv",1,h(100)),value:c("hsv",2,h(100)),chroma:c("hcg",1,h(100)),gray:c("hcg",2,h(100)),white:c("hwb",1,h(100)),wblack:c("hwb",2,h(100)),cyan:c("cmyk",0,h(100)),magenta:c("cmyk",1,h(100)),yellow:c("cmyk",2,h(100)),black:c("cmyk",3,h(100)),x:c("xyz",0,h(100)),y:c("xyz",1,h(100)),z:c("xyz",2,h(100)),l:c("lab",0,h(100)),a:c("lab",1),b:c("lab",2),keyword:function(e){return arguments.length?new u(e):a[this.model].keyword(this.color)},hex:function(e){return arguments.length?new u(e):n.to.hex(this.rgb().round().color)},rgbNumber:function(){var e=this.rgb().color;return(255&e[0])<<16|(255&e[1])<<8|255&e[2]},luminosity:function(){for(var e=this.rgb().color,t=[],r=0;r<e.length;r++){var n=e[r]/255;t[r]=n<=.03928?n/12.92:Math.pow((n+.055)/1.055,2.4)}return.2126*t[0]+.7152*t[1]+.0722*t[2]},contrast:function(e){var t=this.luminosity(),r=e.luminosity();return t>r?(t+.05)/(r+.05):(r+.05)/(t+.05)},level:function(e){var t=this.contrast(e);return t>=7.1?"AAA":t>=4.5?"AA":""},isDark:function(){var e=this.rgb().color;return(299*e[0]+587*e[1]+114*e[2])/1e3<128},isLight:function(){return!this.isDark()},negate:function(){for(var e=this.rgb(),t=0;t<3;t++)e.color[t]=255-e.color[t];return e},lighten:function(e){var t=this.hsl();return t.color[2]+=t.color[2]*e,t},darken:function(e){var t=this.hsl();return t.color[2]-=t.color[2]*e,t},saturate:function(e){var t=this.hsl();return t.color[1]+=t.color[1]*e,t},desaturate:function(e){var t=this.hsl();return t.color[1]-=t.color[1]*e,t},whiten:function(e){var t=this.hwb();return t.color[1]+=t.color[1]*e,t},blacken:function(e){var t=this.hwb();return t.color[2]+=t.color[2]*e,t},grayscale:function(){var e=this.rgb().color,t=.3*e[0]+.59*e[1]+.11*e[2];return u.rgb(t,t,t)},fade:function(e){return this.alpha(this.valpha-this.valpha*e)},opaquer:function(e){return this.alpha(this.valpha+this.valpha*e)},rotate:function(e){var t=this.hsl(),r=t.color[0];return r=(r=(r+e)%360)<0?360+r:r,t.color[0]=r,t},mix:function(e,t){if(!e||!e.rgb)throw new Error('Argument to "mix" was not a Color instance, but rather an instance of '+typeof e);var r=e.rgb(),n=this.rgb(),a=void 0===t?.5:t,o=2*a-1,i=r.alpha()-n.alpha(),l=((o*i==-1?o:(o+i)/(1+o*i))+1)/2,s=1-l;return u.rgb(l*r.red()+s*n.red(),l*r.green()+s*n.green(),l*r.blue()+s*n.blue(),r.alpha()*a+n.alpha()*(1-a))}},Object.keys(a).forEach((function(e){if(-1===i.indexOf(e)){var t=a[e].channels;u.prototype[e]=function(){if(this.model===e)return new u(this);if(arguments.length)return new u(arguments,e);var r="number"==typeof arguments[t]?t:this.valpha;return new u(f(a[this.model][e].raw(this.color)).concat(r),e)},u[e]=function(r){return"number"==typeof r&&(r=d(o.call(arguments),t)),new u(r,e)}}})),e.exports=u},function(e,t,r){"use strict";e.exports={aliceblue:[240,248,255],antiquewhite:[250,235,215],aqua:[0,255,255],aquamarine:[127,255,212],azure:[240,255,255],beige:[245,245,220],bisque:[255,228,196],black:[0,0,0],blanchedalmond:[255,235,205],blue:[0,0,255],blueviolet:[138,43,226],brown:[165,42,42],burlywood:[222,184,135],cadetblue:[95,158,160],chartreuse:[127,255,0],chocolate:[210,105,30],coral:[255,127,80],cornflowerblue:[100,149,237],cornsilk:[255,248,220],crimson:[220,20,60],cyan:[0,255,255],darkblue:[0,0,139],darkcyan:[0,139,139],darkgoldenrod:[184,134,11],darkgray:[169,169,169],darkgreen:[0,100,0],darkgrey:[169,169,169],darkkhaki:[189,183,107],darkmagenta:[139,0,139],darkolivegreen:[85,107,47],darkorange:[255,140,0],darkorchid:[153,50,204],darkred:[139,0,0],darksalmon:[233,150,122],darkseagreen:[143,188,143],darkslateblue:[72,61,139],darkslategray:[47,79,79],darkslategrey:[47,79,79],darkturquoise:[0,206,209],darkviolet:[148,0,211],deeppink:[255,20,147],deepskyblue:[0,191,255],dimgray:[105,105,105],dimgrey:[105,105,105],dodgerblue:[30,144,255],firebrick:[178,34,34],floralwhite:[255,250,240],forestgreen:[34,139,34],fuchsia:[255,0,255],gainsboro:[220,220,220],ghostwhite:[248,248,255],gold:[255,215,0],goldenrod:[218,165,32],gray:[128,128,128],green:[0,128,0],greenyellow:[173,255,47],grey:[128,128,128],honeydew:[240,255,240],hotpink:[255,105,180],indianred:[205,92,92],indigo:[75,0,130],ivory:[255,255,240],khaki:[240,230,140],lavender:[230,230,250],lavenderblush:[255,240,245],lawngreen:[124,252,0],lemonchiffon:[255,250,205],lightblue:[173,216,230],lightcoral:[240,128,128],lightcyan:[224,255,255],lightgoldenrodyellow:[250,250,210],lightgray:[211,211,211],lightgreen:[144,238,144],lightgrey:[211,211,211],lightpink:[255,182,193],lightsalmon:[255,160,122],lightseagreen:[32,178,170],lightskyblue:[135,206,250],lightslategray:[119,136,153],lightslategrey:[119,136,153],lightsteelblue:[176,196,222],lightyellow:[255,255,224],lime:[0,255,0],limegreen:[50,205,50],linen:[250,240,230],magenta:[255,0,255],maroon:[128,0,0],mediumaquamarine:[102,205,170],mediumblue:[0,0,205],mediumorchid:[186,85,211],mediumpurple:[147,112,219],mediumseagreen:[60,179,113],mediumslateblue:[123,104,238],mediumspringgreen:[0,250,154],mediumturquoise:[72,209,204],mediumvioletred:[199,21,133],midnightblue:[25,25,112],mintcream:[245,255,250],mistyrose:[255,228,225],moccasin:[255,228,181],navajowhite:[255,222,173],navy:[0,0,128],oldlace:[253,245,230],olive:[128,128,0],olivedrab:[107,142,35],orange:[255,165,0],orangered:[255,69,0],orchid:[218,112,214],palegoldenrod:[238,232,170],palegreen:[152,251,152],paleturquoise:[175,238,238],palevioletred:[219,112,147],papayawhip:[255,239,213],peachpuff:[255,218,185],peru:[205,133,63],pink:[255,192,203],plum:[221,160,221],powderblue:[176,224,230],purple:[128,0,128],rebeccapurple:[102,51,153],red:[255,0,0],rosybrown:[188,143,143],royalblue:[65,105,225],saddlebrown:[139,69,19],salmon:[250,128,114],sandybrown:[244,164,96],seagreen:[46,139,87],seashell:[255,245,238],sienna:[160,82,45],silver:[192,192,192],skyblue:[135,206,235],slateblue:[106,90,205],slategray:[112,128,144],slategrey:[112,128,144],snow:[255,250,250],springgreen:[0,255,127],steelblue:[70,130,180],tan:[210,180,140],teal:[0,128,128],thistle:[216,191,216],tomato:[255,99,71],turquoise:[64,224,208],violet:[238,130,238],wheat:[245,222,179],white:[255,255,255],whitesmoke:[245,245,245],yellow:[255,255,0],yellowgreen:[154,205,50]}},function(e,t,r){var n=r(7),a={};for(var o in n)n.hasOwnProperty(o)&&(a[n[o]]=o);var i=e.exports={rgb:{channels:3,labels:"rgb"},hsl:{channels:3,labels:"hsl"},hsv:{channels:3,labels:"hsv"},hwb:{channels:3,labels:"hwb"},cmyk:{channels:4,labels:"cmyk"},xyz:{channels:3,labels:"xyz"},lab:{channels:3,labels:"lab"},lch:{channels:3,labels:"lch"},hex:{channels:1,labels:["hex"]},keyword:{channels:1,labels:["keyword"]},ansi16:{channels:1,labels:["ansi16"]},ansi256:{channels:1,labels:["ansi256"]},hcg:{channels:3,labels:["h","c","g"]},apple:{channels:3,labels:["r16","g16","b16"]},gray:{channels:1,labels:["gray"]}};for(var l in i)if(i.hasOwnProperty(l)){if(!("channels"in i[l]))throw new Error("missing channels property: "+l);if(!("labels"in i[l]))throw new Error("missing channel labels property: "+l);if(i[l].labels.length!==i[l].channels)throw new Error("channel and label counts mismatch: "+l);var s=i[l].channels,u=i[l].labels;delete i[l].channels,delete i[l].labels,Object.defineProperty(i[l],"channels",{value:s}),Object.defineProperty(i[l],"labels",{value:u})}i.rgb.hsl=function(e){var t,r,n=e[0]/255,a=e[1]/255,o=e[2]/255,i=Math.min(n,a,o),l=Math.max(n,a,o),s=l-i;return l===i?t=0:n===l?t=(a-o)/s:a===l?t=2+(o-n)/s:o===l&&(t=4+(n-a)/s),(t=Math.min(60*t,360))<0&&(t+=360),r=(i+l)/2,[t,100*(l===i?0:r<=.5?s/(l+i):s/(2-l-i)),100*r]},i.rgb.hsv=function(e){var t,r,n,a,o,i=e[0]/255,l=e[1]/255,s=e[2]/255,u=Math.max(i,l,s),c=u-Math.min(i,l,s),h=function(e){return(u-e)/6/c+.5};return 0===c?a=o=0:(o=c/u,t=h(i),r=h(l),n=h(s),i===u?a=n-r:l===u?a=1/3+t-n:s===u&&(a=2/3+r-t),a<0?a+=1:a>1&&(a-=1)),[360*a,100*o,100*u]},i.rgb.hwb=function(e){var t=e[0],r=e[1],n=e[2];return[i.rgb.hsl(e)[0],100*(1/255*Math.min(t,Math.min(r,n))),100*(n=1-1/255*Math.max(t,Math.max(r,n)))]},i.rgb.cmyk=function(e){var t,r=e[0]/255,n=e[1]/255,a=e[2]/255;return[100*((1-r-(t=Math.min(1-r,1-n,1-a)))/(1-t)||0),100*((1-n-t)/(1-t)||0),100*((1-a-t)/(1-t)||0),100*t]},i.rgb.keyword=function(e){var t=a[e];if(t)return t;var r,o,i,l=1/0;for(var s in n)if(n.hasOwnProperty(s)){var u=n[s],c=(o=e,i=u,Math.pow(o[0]-i[0],2)+Math.pow(o[1]-i[1],2)+Math.pow(o[2]-i[2],2));c<l&&(l=c,r=s)}return r},i.keyword.rgb=function(e){return n[e]},i.rgb.xyz=function(e){var t=e[0]/255,r=e[1]/255,n=e[2]/255;return[100*(.4124*(t=t>.04045?Math.pow((t+.055)/1.055,2.4):t/12.92)+.3576*(r=r>.04045?Math.pow((r+.055)/1.055,2.4):r/12.92)+.1805*(n=n>.04045?Math.pow((n+.055)/1.055,2.4):n/12.92)),100*(.2126*t+.7152*r+.0722*n),100*(.0193*t+.1192*r+.9505*n)]},i.rgb.lab=function(e){var t=i.rgb.xyz(e),r=t[0],n=t[1],a=t[2];return n/=100,a/=108.883,r=(r/=95.047)>.008856?Math.pow(r,1/3):7.787*r+16/116,[116*(n=n>.008856?Math.pow(n,1/3):7.787*n+16/116)-16,500*(r-n),200*(n-(a=a>.008856?Math.pow(a,1/3):7.787*a+16/116))]},i.hsl.rgb=function(e){var t,r,n,a,o,i=e[0]/360,l=e[1]/100,s=e[2]/100;if(0===l)return[o=255*s,o,o];t=2*s-(r=s<.5?s*(1+l):s+l-s*l),a=[0,0,0];for(var u=0;u<3;u++)(n=i+1/3*-(u-1))<0&&n++,n>1&&n--,o=6*n<1?t+6*(r-t)*n:2*n<1?r:3*n<2?t+(r-t)*(2/3-n)*6:t,a[u]=255*o;return a},i.hsl.hsv=function(e){var t=e[0],r=e[1]/100,n=e[2]/100,a=r,o=Math.max(n,.01);return r*=(n*=2)<=1?n:2-n,a*=o<=1?o:2-o,[t,100*(0===n?2*a/(o+a):2*r/(n+r)),100*((n+r)/2)]},i.hsv.rgb=function(e){var t=e[0]/60,r=e[1]/100,n=e[2]/100,a=Math.floor(t)%6,o=t-Math.floor(t),i=255*n*(1-r),l=255*n*(1-r*o),s=255*n*(1-r*(1-o));switch(n*=255,a){case 0:return[n,s,i];case 1:return[l,n,i];case 2:return[i,n,s];case 3:return[i,l,n];case 4:return[s,i,n];case 5:return[n,i,l]}},i.hsv.hsl=function(e){var t,r,n,a=e[0],o=e[1]/100,i=e[2]/100,l=Math.max(i,.01);return n=(2-o)*i,r=o*l,[a,100*(r=(r/=(t=(2-o)*l)<=1?t:2-t)||0),100*(n/=2)]},i.hwb.rgb=function(e){var t,r,n,a,o,i,l,s=e[0]/360,u=e[1]/100,c=e[2]/100,h=u+c;switch(h>1&&(u/=h,c/=h),n=6*s-(t=Math.floor(6*s)),0!=(1&t)&&(n=1-n),a=u+n*((r=1-c)-u),t){default:case 6:case 0:o=r,i=a,l=u;break;case 1:o=a,i=r,l=u;break;case 2:o=u,i=r,l=a;break;case 3:o=u,i=a,l=r;break;case 4:o=a,i=u,l=r;break;case 5:o=r,i=u,l=a}return[255*o,255*i,255*l]},i.cmyk.rgb=function(e){var t=e[0]/100,r=e[1]/100,n=e[2]/100,a=e[3]/100;return[255*(1-Math.min(1,t*(1-a)+a)),255*(1-Math.min(1,r*(1-a)+a)),255*(1-Math.min(1,n*(1-a)+a))]},i.xyz.rgb=function(e){var t,r,n,a=e[0]/100,o=e[1]/100,i=e[2]/100;return r=-.9689*a+1.8758*o+.0415*i,n=.0557*a+-.204*o+1.057*i,t=(t=3.2406*a+-1.5372*o+-.4986*i)>.0031308?1.055*Math.pow(t,1/2.4)-.055:12.92*t,r=r>.0031308?1.055*Math.pow(r,1/2.4)-.055:12.92*r,n=n>.0031308?1.055*Math.pow(n,1/2.4)-.055:12.92*n,[255*(t=Math.min(Math.max(0,t),1)),255*(r=Math.min(Math.max(0,r),1)),255*(n=Math.min(Math.max(0,n),1))]},i.xyz.lab=function(e){var t=e[0],r=e[1],n=e[2];return r/=100,n/=108.883,t=(t/=95.047)>.008856?Math.pow(t,1/3):7.787*t+16/116,[116*(r=r>.008856?Math.pow(r,1/3):7.787*r+16/116)-16,500*(t-r),200*(r-(n=n>.008856?Math.pow(n,1/3):7.787*n+16/116))]},i.lab.xyz=function(e){var t,r,n,a=e[0];t=e[1]/500+(r=(a+16)/116),n=r-e[2]/200;var o=Math.pow(r,3),i=Math.pow(t,3),l=Math.pow(n,3);return r=o>.008856?o:(r-16/116)/7.787,t=i>.008856?i:(t-16/116)/7.787,n=l>.008856?l:(n-16/116)/7.787,[t*=95.047,r*=100,n*=108.883]},i.lab.lch=function(e){var t,r=e[0],n=e[1],a=e[2];return(t=360*Math.atan2(a,n)/2/Math.PI)<0&&(t+=360),[r,Math.sqrt(n*n+a*a),t]},i.lch.lab=function(e){var t,r=e[0],n=e[1];return t=e[2]/360*2*Math.PI,[r,n*Math.cos(t),n*Math.sin(t)]},i.rgb.ansi16=function(e){var t=e[0],r=e[1],n=e[2],a=1 in arguments?arguments[1]:i.rgb.hsv(e)[2];if(0===(a=Math.round(a/50)))return 30;var o=30+(Math.round(n/255)<<2|Math.round(r/255)<<1|Math.round(t/255));return 2===a&&(o+=60),o},i.hsv.ansi16=function(e){return i.rgb.ansi16(i.hsv.rgb(e),e[2])},i.rgb.ansi256=function(e){var t=e[0],r=e[1],n=e[2];return t===r&&r===n?t<8?16:t>248?231:Math.round((t-8)/247*24)+232:16+36*Math.round(t/255*5)+6*Math.round(r/255*5)+Math.round(n/255*5)},i.ansi16.rgb=function(e){var t=e%10;if(0===t||7===t)return e>50&&(t+=3.5),[t=t/10.5*255,t,t];var r=.5*(1+~~(e>50));return[(1&t)*r*255,(t>>1&1)*r*255,(t>>2&1)*r*255]},i.ansi256.rgb=function(e){if(e>=232){var t=10*(e-232)+8;return[t,t,t]}var r;return e-=16,[Math.floor(e/36)/5*255,Math.floor((r=e%36)/6)/5*255,r%6/5*255]},i.rgb.hex=function(e){var t=(((255&Math.round(e[0]))<<16)+((255&Math.round(e[1]))<<8)+(255&Math.round(e[2]))).toString(16).toUpperCase();return"000000".substring(t.length)+t},i.hex.rgb=function(e){var t=e.toString(16).match(/[a-f0-9]{6}|[a-f0-9]{3}/i);if(!t)return[0,0,0];var r=t[0];3===t[0].length&&(r=r.split("").map((function(e){return e+e})).join(""));var n=parseInt(r,16);return[n>>16&255,n>>8&255,255&n]},i.rgb.hcg=function(e){var t,r=e[0]/255,n=e[1]/255,a=e[2]/255,o=Math.max(Math.max(r,n),a),i=Math.min(Math.min(r,n),a),l=o-i;return t=l<=0?0:o===r?(n-a)/l%6:o===n?2+(a-r)/l:4+(r-n)/l+4,t/=6,[360*(t%=1),100*l,100*(l<1?i/(1-l):0)]},i.hsl.hcg=function(e){var t=e[1]/100,r=e[2]/100,n=1,a=0;return(n=r<.5?2*t*r:2*t*(1-r))<1&&(a=(r-.5*n)/(1-n)),[e[0],100*n,100*a]},i.hsv.hcg=function(e){var t=e[1]/100,r=e[2]/100,n=t*r,a=0;return n<1&&(a=(r-n)/(1-n)),[e[0],100*n,100*a]},i.hcg.rgb=function(e){var t=e[0]/360,r=e[1]/100,n=e[2]/100;if(0===r)return[255*n,255*n,255*n];var a,o=[0,0,0],i=t%1*6,l=i%1,s=1-l;switch(Math.floor(i)){case 0:o[0]=1,o[1]=l,o[2]=0;break;case 1:o[0]=s,o[1]=1,o[2]=0;break;case 2:o[0]=0,o[1]=1,o[2]=l;break;case 3:o[0]=0,o[1]=s,o[2]=1;break;case 4:o[0]=l,o[1]=0,o[2]=1;break;default:o[0]=1,o[1]=0,o[2]=s}return a=(1-r)*n,[255*(r*o[0]+a),255*(r*o[1]+a),255*(r*o[2]+a)]},i.hcg.hsv=function(e){var t=e[1]/100,r=t+e[2]/100*(1-t),n=0;return r>0&&(n=t/r),[e[0],100*n,100*r]},i.hcg.hsl=function(e){var t=e[1]/100,r=e[2]/100*(1-t)+.5*t,n=0;return r>0&&r<.5?n=t/(2*r):r>=.5&&r<1&&(n=t/(2*(1-r))),[e[0],100*n,100*r]},i.hcg.hwb=function(e){var t=e[1]/100,r=t+e[2]/100*(1-t);return[e[0],100*(r-t),100*(1-r)]},i.hwb.hcg=function(e){var t=e[1]/100,r=1-e[2]/100,n=r-t,a=0;return n<1&&(a=(r-n)/(1-n)),[e[0],100*n,100*a]},i.apple.rgb=function(e){return[e[0]/65535*255,e[1]/65535*255,e[2]/65535*255]},i.rgb.apple=function(e){return[e[0]/255*65535,e[1]/255*65535,e[2]/255*65535]},i.gray.rgb=function(e){return[e[0]/100*255,e[0]/100*255,e[0]/100*255]},i.gray.hsl=i.gray.hsv=function(e){return[0,0,e[0]]},i.gray.hwb=function(e){return[0,100,e[0]]},i.gray.cmyk=function(e){return[0,0,0,e[0]]},i.gray.lab=function(e){return[e[0],0,0]},i.gray.hex=function(e){var t=255&Math.round(e[0]/100*255),r=((t<<16)+(t<<8)+t).toString(16).toUpperCase();return"000000".substring(r.length)+r},i.rgb.gray=function(e){return[(e[0]+e[1]+e[2])/3/255*100]}},function(e,t,r){var n=r(1),a=r(4),o=Object.hasOwnProperty,i={};for(var l in n)o.call(n,l)&&(i[n[l]]=l);var s=e.exports={to:{},get:{}};function u(e,t,r){return Math.min(Math.max(t,e),r)}function c(e){var t=Math.round(e).toString(16).toUpperCase();return t.length<2?"0"+t:t}s.get=function(e){var t,r;switch(e.substring(0,3).toLowerCase()){case"hsl":t=s.get.hsl(e),r="hsl";break;case"hwb":t=s.get.hwb(e),r="hwb";break;default:t=s.get.rgb(e),r="rgb"}return t?{model:r,value:t}:null},s.get.rgb=function(e){if(!e)return null;var t,r,a,i=[0,0,0,1];if(t=e.match(/^#([a-f0-9]{6})([a-f0-9]{2})?$/i)){for(a=t[2],t=t[1],r=0;r<3;r++){var l=2*r;i[r]=parseInt(t.slice(l,l+2),16)}a&&(i[3]=parseInt(a,16)/255)}else if(t=e.match(/^#([a-f0-9]{3,4})$/i)){for(a=(t=t[1])[3],r=0;r<3;r++)i[r]=parseInt(t[r]+t[r],16);a&&(i[3]=parseInt(a+a,16)/255)}else if(t=e.match(/^rgba?\(\s*([+-]?\d+)(?=[\s,])\s*(?:,\s*)?([+-]?\d+)(?=[\s,])\s*(?:,\s*)?([+-]?\d+)\s*(?:[,|\/]\s*([+-]?[\d\.]+)(%?)\s*)?\)$/)){for(r=0;r<3;r++)i[r]=parseInt(t[r+1],0);t[4]&&(t[5]?i[3]=.01*parseFloat(t[4]):i[3]=parseFloat(t[4]))}else{if(!(t=e.match(/^rgba?\(\s*([+-]?[\d\.]+)\%\s*,?\s*([+-]?[\d\.]+)\%\s*,?\s*([+-]?[\d\.]+)\%\s*(?:[,|\/]\s*([+-]?[\d\.]+)(%?)\s*)?\)$/)))return(t=e.match(/^(\w+)$/))?"transparent"===t[1]?[0,0,0,0]:o.call(n,t[1])?((i=n[t[1]])[3]=1,i):null:null;for(r=0;r<3;r++)i[r]=Math.round(2.55*parseFloat(t[r+1]));t[4]&&(t[5]?i[3]=.01*parseFloat(t[4]):i[3]=parseFloat(t[4]))}for(r=0;r<3;r++)i[r]=u(i[r],0,255);return i[3]=u(i[3],0,1),i},s.get.hsl=function(e){if(!e)return null;var t=e.match(/^hsla?\(\s*([+-]?(?:\d{0,3}\.)?\d+)(?:deg)?\s*,?\s*([+-]?[\d\.]+)%\s*,?\s*([+-]?[\d\.]+)%\s*(?:[,|\/]\s*([+-]?(?=\.\d|\d)(?:0|[1-9]\d*)?(?:\.\d*)?(?:[eE][+-]?\d+)?)\s*)?\)$/);if(t){var r=parseFloat(t[4]);return[(parseFloat(t[1])%360+360)%360,u(parseFloat(t[2]),0,100),u(parseFloat(t[3]),0,100),u(isNaN(r)?1:r,0,1)]}return null},s.get.hwb=function(e){if(!e)return null;var t=e.match(/^hwb\(\s*([+-]?\d{0,3}(?:\.\d+)?)(?:deg)?\s*,\s*([+-]?[\d\.]+)%\s*,\s*([+-]?[\d\.]+)%\s*(?:,\s*([+-]?(?=\.\d|\d)(?:0|[1-9]\d*)?(?:\.\d*)?(?:[eE][+-]?\d+)?)\s*)?\)$/);if(t){var r=parseFloat(t[4]);return[(parseFloat(t[1])%360+360)%360,u(parseFloat(t[2]),0,100),u(parseFloat(t[3]),0,100),u(isNaN(r)?1:r,0,1)]}return null},s.to.hex=function(){var e=a(arguments);return"#"+c(e[0])+c(e[1])+c(e[2])+(e[3]<1?c(Math.round(255*e[3])):"")},s.to.rgb=function(){var e=a(arguments);return e.length<4||1===e[3]?"rgb("+Math.round(e[0])+", "+Math.round(e[1])+", "+Math.round(e[2])+")":"rgba("+Math.round(e[0])+", "+Math.round(e[1])+", "+Math.round(e[2])+", "+e[3]+")"},s.to.rgb.percent=function(){var e=a(arguments),t=Math.round(e[0]/255*100),r=Math.round(e[1]/255*100),n=Math.round(e[2]/255*100);return e.length<4||1===e[3]?"rgb("+t+"%, "+r+"%, "+n+"%)":"rgba("+t+"%, "+r+"%, "+n+"%, "+e[3]+")"},s.to.hsl=function(){var e=a(arguments);return e.length<4||1===e[3]?"hsl("+e[0]+", "+e[1]+"%, "+e[2]+"%)":"hsla("+e[0]+", "+e[1]+"%, "+e[2]+"%, "+e[3]+")"},s.to.hwb=function(){var e=a(arguments),t="";return e.length>=4&&1!==e[3]&&(t=", "+e[3]),"hwb("+e[0]+", "+e[1]+"%, "+e[2]+"%"+t+")"},s.to.keyword=function(e){return i[e.slice(0,3)]}},function(e,t,r){"use strict";var n=r(5),a=Array.prototype.concat,o=Array.prototype.slice,i=e.exports=function(e){for(var t=[],r=0,i=e.length;r<i;r++){var l=e[r];n(l)?t=a.call(t,o.call(l)):t.push(l)}return t};i.wrap=function(e){return function(){return e(i(arguments))}}},function(e,t){e.exports=function(e){return!(!e||"string"==typeof e)&&(e instanceof Array||Array.isArray(e)||e.length>=0&&(e.splice instanceof Function||Object.getOwnPropertyDescriptor(e,e.length-1)&&"String"!==e.constructor.name))}},function(e,t,r){var n=r(2),a=r(8),o={};Object.keys(n).forEach((function(e){o[e]={},Object.defineProperty(o[e],"channels",{value:n[e].channels}),Object.defineProperty(o[e],"labels",{value:n[e].labels});var t=a(e);Object.keys(t).forEach((function(r){var n=t[r];o[e][r]=function(e){var t=function(t){if(null==t)return t;arguments.length>1&&(t=Array.prototype.slice.call(arguments));var r=e(t);if("object"==typeof r)for(var n=r.length,a=0;a<n;a++)r[a]=Math.round(r[a]);return r};return"conversion"in e&&(t.conversion=e.conversion),t}(n),o[e][r].raw=function(e){var t=function(t){return null==t?t:(arguments.length>1&&(t=Array.prototype.slice.call(arguments)),e(t))};return"conversion"in e&&(t.conversion=e.conversion),t}(n)}))})),e.exports=o},function(e,t,r){"use strict";e.exports={aliceblue:[240,248,255],antiquewhite:[250,235,215],aqua:[0,255,255],aquamarine:[127,255,212],azure:[240,255,255],beige:[245,245,220],bisque:[255,228,196],black:[0,0,0],blanchedalmond:[255,235,205],blue:[0,0,255],blueviolet:[138,43,226],brown:[165,42,42],burlywood:[222,184,135],cadetblue:[95,158,160],chartreuse:[127,255,0],chocolate:[210,105,30],coral:[255,127,80],cornflowerblue:[100,149,237],cornsilk:[255,248,220],crimson:[220,20,60],cyan:[0,255,255],darkblue:[0,0,139],darkcyan:[0,139,139],darkgoldenrod:[184,134,11],darkgray:[169,169,169],darkgreen:[0,100,0],darkgrey:[169,169,169],darkkhaki:[189,183,107],darkmagenta:[139,0,139],darkolivegreen:[85,107,47],darkorange:[255,140,0],darkorchid:[153,50,204],darkred:[139,0,0],darksalmon:[233,150,122],darkseagreen:[143,188,143],darkslateblue:[72,61,139],darkslategray:[47,79,79],darkslategrey:[47,79,79],darkturquoise:[0,206,209],darkviolet:[148,0,211],deeppink:[255,20,147],deepskyblue:[0,191,255],dimgray:[105,105,105],dimgrey:[105,105,105],dodgerblue:[30,144,255],firebrick:[178,34,34],floralwhite:[255,250,240],forestgreen:[34,139,34],fuchsia:[255,0,255],gainsboro:[220,220,220],ghostwhite:[248,248,255],gold:[255,215,0],goldenrod:[218,165,32],gray:[128,128,128],green:[0,128,0],greenyellow:[173,255,47],grey:[128,128,128],honeydew:[240,255,240],hotpink:[255,105,180],indianred:[205,92,92],indigo:[75,0,130],ivory:[255,255,240],khaki:[240,230,140],lavender:[230,230,250],lavenderblush:[255,240,245],lawngreen:[124,252,0],lemonchiffon:[255,250,205],lightblue:[173,216,230],lightcoral:[240,128,128],lightcyan:[224,255,255],lightgoldenrodyellow:[250,250,210],lightgray:[211,211,211],lightgreen:[144,238,144],lightgrey:[211,211,211],lightpink:[255,182,193],lightsalmon:[255,160,122],lightseagreen:[32,178,170],lightskyblue:[135,206,250],lightslategray:[119,136,153],lightslategrey:[119,136,153],lightsteelblue:[176,196,222],lightyellow:[255,255,224],lime:[0,255,0],limegreen:[50,205,50],linen:[250,240,230],magenta:[255,0,255],maroon:[128,0,0],mediumaquamarine:[102,205,170],mediumblue:[0,0,205],mediumorchid:[186,85,211],mediumpurple:[147,112,219],mediumseagreen:[60,179,113],mediumslateblue:[123,104,238],mediumspringgreen:[0,250,154],mediumturquoise:[72,209,204],mediumvioletred:[199,21,133],midnightblue:[25,25,112],mintcream:[245,255,250],mistyrose:[255,228,225],moccasin:[255,228,181],navajowhite:[255,222,173],navy:[0,0,128],oldlace:[253,245,230],olive:[128,128,0],olivedrab:[107,142,35],orange:[255,165,0],orangered:[255,69,0],orchid:[218,112,214],palegoldenrod:[238,232,170],palegreen:[152,251,152],paleturquoise:[175,238,238],palevioletred:[219,112,147],papayawhip:[255,239,213],peachpuff:[255,218,185],peru:[205,133,63],pink:[255,192,203],plum:[221,160,221],powderblue:[176,224,230],purple:[128,0,128],rebeccapurple:[102,51,153],red:[255,0,0],rosybrown:[188,143,143],royalblue:[65,105,225],saddlebrown:[139,69,19],salmon:[250,128,114],sandybrown:[244,164,96],seagreen:[46,139,87],seashell:[255,245,238],sienna:[160,82,45],silver:[192,192,192],skyblue:[135,206,235],slateblue:[106,90,205],slategray:[112,128,144],slategrey:[112,128,144],snow:[255,250,250],springgreen:[0,255,127],steelblue:[70,130,180],tan:[210,180,140],teal:[0,128,128],thistle:[216,191,216],tomato:[255,99,71],turquoise:[64,224,208],violet:[238,130,238],wheat:[245,222,179],white:[255,255,255],whitesmoke:[245,245,245],yellow:[255,255,0],yellowgreen:[154,205,50]}},function(e,t,r){var n=r(2);function a(e){var t=function(){for(var e={},t=Object.keys(n),r=t.length,a=0;a<r;a++)e[t[a]]={distance:-1,parent:null};return e}(),r=[e];for(t[e].distance=0;r.length;)for(var a=r.pop(),o=Object.keys(n[a]),i=o.length,l=0;l<i;l++){var s=o[l],u=t[s];-1===u.distance&&(u.distance=t[a].distance+1,u.parent=a,r.unshift(s))}return t}function o(e,t){return function(r){return t(e(r))}}function i(e,t){for(var r=[t[e].parent,e],a=n[t[e].parent][e],i=t[e].parent;t[i].parent;)r.unshift(t[i].parent),a=o(n[t[i].parent][i],a),i=t[i].parent;return a.conversion=r,a}e.exports=function(e){for(var t=a(e),r={},n=Object.keys(t),o=n.length,l=0;l<o;l++){var s=n[l];null!==t[s].parent&&(r[s]=i(s,t))}return r}},function(e,t,r){"use strict";r.r(t),r.d(t,"run",(function(){return ye})),r.d(t,"init",(function(){return me})),r.d(t,"convertBg",(function(){return ve})),r.d(t,"extend",(function(){return ke}));var n="(prefers-color-scheme: dark)",a="data_color_scheme_dark",o="".concat(1*new Date).concat(Math.round(10*Math.random())),i="data-darkmode-color-".concat(o),l="data-darkmode-bgcolor-".concat(o),s="data-darkmode-original-color-".concat(o),u="data-darkmode-original-bgcolor-".concat(o),c="data-darkmode-bgimage-".concat(o),h=window.getInnerHeight&&window.getInnerHeight()||window.innerHeight||document.documentElement.clientHeight,f=["TABLE","TR","TD","TH"],d=/ !important$/,g={hasInit:!1,begin:null,showFirstPage:null,error:null,mode:"",whitelist:{tagName:["MPCPS","IFRAME"]},needJudgeFirstPage:!0,delayBgJudge:!1,container:null,cssSelectorsPrefix:"",defaultLightTextColor:"#191919",defaultLightBgColor:"#fff",defaultDarkTextColor:"#a3a3a3",defaultDarkBgColor:"#191919",set:function(e,t,r){var n=t[r];switch(e){case"boolean":"boolean"==typeof n&&(this[r]=n);break;case"string":"string"==typeof n&&""!==n&&(this[r]=n);break;case"function":"function"==typeof n&&(this[r]=n);break;case"dom":n instanceof HTMLElement&&(this[r]=n)}}};function b(e,t,r){return t in e?Object.defineProperty(e,t,{value:r,enumerable:!0,configurable:!0,writable:!0}):e[t]=r,e}function p(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}function y(e,t){for(var r=0;r<t.length;r++){var n=t[r];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,n.key,n)}}function m(e,t,r){return t&&y(e.prototype,t),r&&y(e,r),Object.defineProperty(e,"prototype",{writable:!1}),e}var v=[],k=[],w=function(){function e(){p(this,e)}return m(e,[{key:"loopTimes",get:function(){return se.loopTimes}},{key:"isDarkmode",get:function(){return de.isDarkmode}},{key:"addCss",value:function(e,t){var r=!(arguments.length>2&&void 0!==arguments[2])||arguments[2];(r?v:k).push(he.genCss(e,t.map((function(e){var t=e.key,r=e.value;return he.genCssKV(t,r)})).join("")))}}]),e}(),x=function(){function e(){p(this,e),b(this,"_plugins",[]),b(this,"length",0),b(this,"loopTimes",0),b(this,"firstPageStyle",""),b(this,"otherPageStyle",""),b(this,"firstPageStyleNoMQ",""),b(this,"otherPageStyleNoMQ","")}return m(e,[{key:"extend",value:function(e){this._plugins.push(new(e(w))),this.length++}},{key:"emit",value:function(e){for(var t=arguments.length,r=new Array(t>1?t-1:0),n=1;n<t;n++)r[n-1]=arguments[n];this._plugins.forEach((function(t){"function"==typeof t[e]&&t[e].apply(t,r)}))}},{key:"addCss",value:function(e){e?(this.firstPageStyle+=v.join(""),this.firstPageStyleNoMQ+=k.join("")):(this.otherPageStyle+=v.join(""),this.otherPageStyleNoMQ+=k.join(""))}},{key:"resetCss",value:function(){v=[],k=[]}}]),e}();function M(e){return(M="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e})(e)}function _(e,t){for(var r=0;r<t.length;r++){var n=t[r];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,n.key,n)}}function C(e,t,r){return t in e?Object.defineProperty(e,t,{value:r,enumerable:!0,configurable:!0,writable:!0}):e[t]=r,e}var j=function(){function e(t){!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,e),C(this,"_queue",[]),C(this,"_idx",0),this._prefix=t}var t,r,n;return t=e,(r=[{key:"push",value:function(e){var t="".concat(this._prefix).concat(this._idx++);e.classList.add(t),this._queue.push({el:e,className:t,updated:!g.delayBgJudge})}},{key:"forEach",value:function(e){var t=[];for(this._queue.forEach((function(r,n){r.updated&&(t.unshift(n),M(e)&&e(r.el))}));t.length;)this._queue.splice(t.shift(),1)}},{key:"update",value:function(e){this._queue.forEach((function(t){t.updated||Array.prototype.some.call(e,(function(e){return!(1!==e.nodeType||!e.classList.contains(t.className)||(t.el=e,t.updated=!0,0))}))}))}}])&&_(t.prototype,r),n&&_(t,n),Object.defineProperty(t,"prototype",{writable:!1}),e}();function P(e,t){for(var r=0;r<t.length;r++){var n=t[r];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,n.key,n)}}function S(e,t,r){return t in e?Object.defineProperty(e,t,{value:r,enumerable:!0,configurable:!0,writable:!0}):e[t]=r,e}var A=function(){function e(t){!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,e),S(this,"_stack",[]),S(this,"_idx",0),this._prefix=t}var t,r,n;return t=e,(r=[{key:"push",value:function(e,t){var r="".concat(this._prefix).concat(this._idx++);e.classList.add(r),this._stack.unshift({el:e,className:r,cssKV:t,updated:!g.delayBgJudge})}},{key:"contains",value:function(e,t){var r=e.getBoundingClientRect(),n=[];for(this._stack.forEach((function(e,t){if(e.updated){e.rect||(e.rect=e.el.getBoundingClientRect());var a=e.rect;r.top>=a.bottom||r.bottom<=a.top||r.left>=a.right||r.right<=a.left||n.unshift(t)}}));n.length;){var a=this._stack.splice(n.shift(),1)[0];"function"==typeof t&&t(a)}}},{key:"update",value:function(e){this._stack.forEach((function(t){t.updated||Array.prototype.some.call(e,(function(e){return!(1!==e.nodeType||!e.classList.contains(t.className)||(t.el=e,t.updated=!0,0))}))}))}}])&&P(t.prototype,r),n&&P(t,n),Object.defineProperty(t,"prototype",{writable:!1}),e}();function O(e,t){return function(e){if(Array.isArray(e))return e}(e)||function(e,t){var r=null==e?null:"undefined"!=typeof Symbol&&e[Symbol.iterator]||e["@@iterator"];if(null==r)return;var n,a,o=[],i=!0,l=!1;try{for(r=r.call(e);!(i=(n=r.next()).done)&&(o.push(n.value),!t||o.length!==t);i=!0);}catch(e){l=!0,a=e}finally{try{i||null==r.return||r.return()}finally{if(l)throw a}}return o}(e,t)||function(e,t){if(!e)return;if("string"==typeof e)return B(e,t);var r=Object.prototype.toString.call(e).slice(8,-1);"Object"===r&&e.constructor&&(r=e.constructor.name);if("Map"===r||"Set"===r)return Array.from(e);if("Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r))return B(e,t)}(e,t)||function(){throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}()}function B(e,t){(null==t||t>e.length)&&(t=e.length);for(var r=0,n=new Array(t);r<t;r++)n[r]=e[r];return n}function E(e,t){for(var r=0;r<t.length;r++){var n=t[r];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,n.key,n)}}function T(e,t,r){return t in e?Object.defineProperty(e,t,{value:r,enumerable:!0,configurable:!0,writable:!0}):e[t]=r,e}var N=function(){function e(){!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,e),T(this,"_firstPageStyle",""),T(this,"_otherPageStyle",""),T(this,"isFinish",!1)}var t,r,o;return t=e,(r=[{key:"genCssKV",value:function(e,t){return"".concat(e,": ").concat(t," !important;")}},{key:"genCss",value:function(e,t){return"".concat("dark"===g.mode?"html.".concat(a," "):"").concat(g.cssSelectorsPrefix&&"".concat(g.cssSelectorsPrefix," "),".").concat(e,"{").concat(t,"}")}},{key:"addCss",value:function(e,t){this[t?"_firstPageStyle":"_otherPageStyle"]+=e,se.addCss(t)}},{key:"writeStyle",value:function(e){!e&&de.isDarkmode&&(this.isFinish=!0);var t=(de.isDarkmode?[{target:this,key:["_firstPageStyle","_otherPageStyle"],needMediaQuery:!0}]:[]).concat([{target:se,key:["firstPageStyle","otherPageStyle"],needMediaQuery:!0},{target:se,key:["firstPageStyleNoMQ","otherPageStyleNoMQ"],needMediaQuery:!1}]).map((function(t){var r=t.target,a=O(t.key,2),o=a[0],i=a[1],l=t.needMediaQuery,s="";e?s=o:(r[i]=r[o]+r[i],r[o]="",s=i);var u=r[s];return u?(r[s]="","dark"!==g.mode&&l?"@media ".concat(n," {").concat(u,"}"):u):""})).join("");t&&document.head.insertAdjacentHTML("beforeend",'<style type="text/css">'.concat(t,"</style>"))}}])&&E(t.prototype,r),o&&E(t,o),Object.defineProperty(t,"prototype",{writable:!1}),e}();function F(e,t){for(var r=0;r<t.length;r++){var n=t[r];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,n.key,n)}}function D(e,t,r){return t in e?Object.defineProperty(e,t,{value:r,enumerable:!0,configurable:!0,writable:!0}):e[t]=r,e}function L(e){return function(e){if(Array.isArray(e))return q(e)}(e)||function(e){if("undefined"!=typeof Symbol&&null!=e[Symbol.iterator]||null!=e["@@iterator"])return Array.from(e)}(e)||function(e,t){if(!e)return;if("string"==typeof e)return q(e,t);var r=Object.prototype.toString.call(e).slice(8,-1);"Object"===r&&e.constructor&&(r=e.constructor.name);if("Map"===r||"Set"===r)return Array.from(e);if("Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r))return q(e,t)}(e)||function(){throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}()}function q(e,t){(null==t||t>e.length)&&(t=e.length);for(var r=0,n=new Array(t);r<t;r++)n[r]=e[r];return n}function I(e){var t;return(t=[e]).concat.apply(t,L(e.querySelectorAll("*")))}var z={"ue-table-interlace-color-single":"#fcfcfc","ue-table-interlace-color-double":"#f7faff"};var V=function(){function e(){!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,e),D(this,"_nodes",[]),D(this,"_firstPageNodes",[]),D(this,"_delayNodes",[]),D(this,"showFirstPage",!1)}var t,r,n;return t=e,(r=[{key:"length",get:function(){return this._nodes.length}},{key:"set",value:function(){var e=arguments.length>0&&void 0!==arguments[0]?arguments[0]:[];this._nodes=e}},{key:"get",value:function(){var e=[];return this._nodes.length?(e=this._nodes,de.isDarkmode&&(this._nodes=[])):this._delayNodes.length?(e=this._delayNodes,this._delayNodes=[]):g.container&&(e=g.container.querySelectorAll("*")),e}},{key:"delay",value:function(){var e=this;Array.prototype.forEach.call(this._nodes,(function(t){return e._delayNodes.push(t)})),this._nodes=[]}},{key:"hasDelay",value:function(){return this._delayNodes.length>0}},{key:"addFirstPageNode",value:function(e){this._firstPageNodes.push(e)}},{key:"showFirstPageNodes",value:function(){this._firstPageNodes.forEach((function(e){return e.style.visibility="visible"})),this.showFirstPage=!0}},{key:"emptyFirstPageNodes",value:function(){this._firstPageNodes=[]}}])&&F(t.prototype,r),n&&F(t,n),Object.defineProperty(t,"prototype",{writable:!1}),e}(),K=r(0),J=r.n(K),$=r(1),H=r.n($);function R(e,t){return function(e){if(Array.isArray(e))return e}(e)||function(e,t){var r=null==e?null:"undefined"!=typeof Symbol&&e[Symbol.iterator]||e["@@iterator"];if(null==r)return;var n,a,o=[],i=!0,l=!1;try{for(r=r.call(e);!(i=(n=r.next()).done)&&(o.push(n.value),!t||o.length!==t);i=!0);}catch(e){l=!0,a=e}finally{try{i||null==r.return||r.return()}finally{if(l)throw a}}return o}(e,t)||U(e,t)||function(){throw new TypeError("Invalid attempt to destructure non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}()}function Q(e){return function(e){if(Array.isArray(e))return G(e)}(e)||function(e){if("undefined"!=typeof Symbol&&null!=e[Symbol.iterator]||null!=e["@@iterator"])return Array.from(e)}(e)||U(e)||function(){throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.")}()}function U(e,t){if(e){if("string"==typeof e)return G(e,t);var r=Object.prototype.toString.call(e).slice(8,-1);return"Object"===r&&e.constructor&&(r=e.constructor.name),"Map"===r||"Set"===r?Array.from(e):"Arguments"===r||/^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(r)?G(e,t):void 0}}function G(e,t){(null==t||t>e.length)&&(t=e.length);for(var r=0,n=new Array(t);r<t;r++)n[r]=e[r];return n}function W(e,t){for(var r=0;r<t.length;r++){var n=t[r];n.enumerable=n.enumerable||!1,n.configurable=!0,"value"in n&&(n.writable=!0),Object.defineProperty(e,n.key,n)}}function X(e,t,r){return t in e?Object.defineProperty(e,t,{value:r,enumerable:!0,configurable:!0,writable:!0}):e[t]=r,e}H.a.windowtext=[0,0,0],H.a.transparent=[255,255,255,0];var Y=new RegExp(Object.keys(H.a).map((function(e){return"\\b".concat(e,"\\b")})).join("|"),"ig"),Z=/\brgba?\([^)]+\)/i,ee=/\brgba?\([^)]+\)/gi,te=function(e){return e.replace(d,"")},re=function(e,t){return te(e).replace(Y,(function(e){if(!t&&"transparent"===e)return e;var r=H.a[e.toLowerCase()];return"".concat(r.length>3?"rgba":"rgb","(").concat(r.toString(),")")}))},ne=function(e){if(!e||e.length<1)return"";if(1===e.length)return e[0];for(var t=e.shift(),r=e.shift();r;){var n=J()(r);t=J()(t).mix(n,n.alpha()),r=e.shift()}return t},ae=function(e){var t=re(e);return Z.test(t)?t:""},oe=function(e){return(299*e[0]+587*e[1]+114*e[2])/1e3},ie=function(e,t){var r=e/oe(t),n=Math.min(255,t[0]*r),a=Math.min(255,t[1]*r),o=Math.min(255,t[2]*r);return 0===a||255===n||255===o?a=(1e3*e-299*n-114*o)/587:0===n?n=(1e3*e-587*a-114*o)/299:0!==o&&255!==a||(o=(1e3*e-299*n-587*a)/114),J.a.rgb(n,a,o)},le=function(){function e(){!function(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}(this,e),X(this,"_idx",0),X(this,"_defaultDarkTextColorRgb",J()(g.defaultDarkTextColor).rgb().array()),X(this,"_defaultDarkBgColorRgb",J()(g.defaultDarkBgColor).rgb().array()),X(this,"_defaultDarkBgColorHSL",J()(g.defaultDarkBgColor).hsl().array()),X(this,"_defaultDarkTextColorBrightness",oe(this._defaultDarkTextColorRgb)),X(this,"_defaultDarkBgColorBrightness",oe(this._defaultDarkBgColorRgb)),X(this,"_defaultDarkBgColorHslBrightness",this._defaultDarkBgColorHSL[2]),X(this,"_maxLimitOffsetBrightness",this._defaultDarkTextColorBrightness-this._defaultDarkBgColorBrightness),X(this,"isDarkmode",!1)}var t,r,n;return t=e,(r=[{key:"_adjustTextBrightness",value:function(e,t){var r=t.rgb().array(),n=t.alpha(),a=oe(r)*n+this._defaultDarkBgColorBrightness*(1-n),o=e.rgb().array(),i=e.hsl().array(),l=e.alpha(),s=oe(o),u=Math.abs(a-s);if(s>=250)return e;if(u>this._maxLimitOffsetBrightness&&a<=this._defaultDarkBgColorBrightness+2)return ie(this._maxLimitOffsetBrightness+a,o).alpha(l);if(u>=65)return e;if(a>=100){if(i[2]>50){i[2]=90-i[2];var c=J.a.hsl.apply(J.a,Q(i)).alpha(l);return this._adjustTextBrightness(c,t)}return ie(Math.min(this._maxLimitOffsetBrightness,a-65),o).alpha(l)}if(i[2]<=40){i[2]=90-i[2];var h=J.a.hsl.apply(J.a,Q(i)).alpha(l);return this._adjustTextBrightness(h,t)}return ie(Math.min(this._maxLimitOffsetBrightness,a+65),o).alpha(l)}},{key:"_adjustBackgroundBrightness",value:function(e){var t=e.rgb().array(),r=e.hsl().array(),n=e.alpha(),a=oe(t),o=e;return 0===r[1]&&r[2]>40||a>250?o=J.a.hsl(0,0,Math.min(100,100+this._defaultDarkBgColorHslBrightness-r[2])):a>190?o=ie(190,t).alpha(n):r[2]<22&&(r[2]=22,o=J.a.hsl.apply(J.a,Q(r))),o.alpha(n).rgb()}},{key:"_adjustBrightness",value:function(e,t,r){var n,a=e.alpha(),o="";if(r.isBgColor){if(t.getAttribute(c)&&a>=.05&&t.removeAttribute(c),n=this._adjustBackgroundBrightness(e),!r.hasInlineColor){var s=t.getAttribute(i)||g.defaultLightTextColor,u=n||e,h=this._adjustBrightness(J()(s),t,{isTextColor:!0,parentElementBgColorStr:u});h.newColor?o+=he.genCssKV("color",h.newColor):o+=he.genCssKV("color",s)}}else if(r.isTextColor||r.isBorderColor){var f=r.parentElementBgColorStr||r.isTextColor&&t.getAttribute(l)||g.defaultDarkBgColor,d=J()(f);t.getAttribute(c)||(n=this._adjustTextBrightness(e,d),se.emit("afterConvertTextColor",t,{fontColor:n,bgColor:d}))}else r.isTextShadow&&(t.getAttribute(c)||(n=this._adjustBackgroundBrightness(e)));return{newColor:n&&e.toString()!==n.toString()&&n.alpha(a).rgb(),extStyle:o}}},{key:"_try",value:function(e){try{return e()}catch(e){console.log("An error occurred when running the dark mode conversion algorithm\n",e),"function"==typeof g.error&&g.error(e)}}},{key:"convert",value:function(e){var t=this;se.resetCss(),se.emit("beforeConvertNode",e);var r,n,a="";if(this.isDarkmode){var o=e.nodeName;if(g.whitelist.tagName.indexOf(o)>-1)return"";var h,b,p=e.style,y="",m=!1,v=!1,k=!1,w=(p.cssText&&p.cssText.split(";")||[]).map((function(e){var t=e.indexOf(":");return[e.slice(0,t).toLowerCase(),e.slice(t+1)].map((function(e){return(e||"").replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g,"")}))})).filter((function(e){var t=R(e,2),r=t[0],n=t[1];return"color"===r?m=!0:/background/i.test(r)&&(v=!0,"background-position"===r?h=n:"background-size"===r&&(b=n)),(/background/i.test(r)||/^(-webkit-)?border-image/.test(r))&&/url\([^)]*\)/i.test(n)&&(k=!0),["-webkit-border-image","border-image","color","background-color","background-image","background","border","border-top","border-right","border-bottom","border-left","border-color","border-top-color","border-right-color","border-bottom-color","border-left-color","-webkit-text-fill-color","-webkit-text-stroke","-webkit-text-stroke-color","text-shadow"].indexOf(r)>-1})).sort((function(e,t){var r=R(e,1)[0],n=R(t,1)[0];return"color"===r||"background-image"===r&&"background-color"===n||0===n.indexOf("-webkit-text")?1:-1}));f.indexOf(o)>-1&&!v&&this._try((function(){var t=function(e){var t=null;return Array.prototype.some.call(e.classList,(function(e){return!!z[e]&&(t=z[e],!0)})),t}(e);t||(t=e.getAttribute("bgcolor")),t&&(w.unshift(["background-color",J()(t).toString()]),v=!0)})),"FONT"!==o||m||this._try((function(){var t=e.getAttribute("color");t&&(w.push(["color",J()(t).toString()]),m=!0)}));var x="",M="",_=0;if(w.some((function(e,r){var n=R(e,2),a=n[0],o=n[1];return t._try((function(){if(0!==a.indexOf("-webkit-text"))return _=r,!0;switch(a){case"-webkit-text-fill-color":x=ae(o);break;case"-webkit-text-stroke":var e=o.split(" ");2===e.length&&(M=ae(e[1]));break;case"-webkit-text-stroke-color":M=ae(o)}return!1}))})),x&&(m?w[w.length-1]=["-webkit-text-fill-color",x]:(w.push(["-webkit-text-fill-color",x]),m=!0)),_&&(w.splice(0,_),M&&w.unshift(["-webkit-text-stroke-color",M])),w.forEach((function(r){var n=R(r,2),a=n[0],o=n[1];return t._try((function(){var r,n=o,f=!1,w=/^background/.test(a),x="text-shadow"===a,M=["-webkit-text-stroke-color","color","-webkit-text-fill-color"].indexOf(a),_=/^border/.test(a),C=/gradient/.test(o),j=[],P="";if(o=re(o,C),Z.test(o)){if(C){for(var S=ee.exec(o);S;)j.push(S[0]),S=ee.exec(o);r=ne(j)}var A=0;o=o.replace(ee,(function(n){C&&(n=r,f=!0);var a=t._adjustBrightness(J()(n),e,{isBgColor:w,isTextShadow:x,isTextColor:M>-1,isBorderColor:_,hasInlineColor:m}),o=!k&&a.newColor;if(P+=a.extStyle,w||M>0){var h=w?l:i,d=w?u:s,b=o?o.toString():n;0===A&&I(e).forEach((function(e){var t=e.getAttribute(d)||g.defaultLightBgColor;e.setAttribute(h,b),e.setAttribute(d,t.split("|").concat(n).join("|")),w&&J()(b).alpha()>=.05&&e.getAttribute(c)&&e.removeAttribute(c)}))}return o&&(f=!0),A+=1,o||n})).replace(/\s?!\s?important/gi,"")}if(P&&(y+=P),!(e instanceof SVGElement)){var O=/^background/.test(a),B=/^(-webkit-)?border-image/.test(a);if((O||B)&&/url\([^)]*\)/i.test(o)){f=!0;var E=ne((e.getAttribute(u)||g.defaultLightBgColor).split("|"));if(o=o.replace(/^(.*?)url\(([^)]*)\)(.*)$/i,(function(t){var r=t,n="",o="",i="";return"1"!==e.getAttribute(c)&&I(e).forEach((function(e){return e.setAttribute(c,"1")})),O?(r="linear-gradient(".concat("rgba(0,0,0,0.2)",", ").concat("rgba(0,0,0,0.2)","),").concat(t),i=he.genCssKV(a,"".concat(r,",linear-gradient(").concat(E,", ").concat(E,")")),h&&(n="top left,".concat(h),y+=he.genCssKV("background-position","".concat(n)),i+=he.genCssKV("background-position","".concat(n,",top left"))),b&&(o="100%,".concat(b),y+=he.genCssKV("background-size","".concat(o)),i+=he.genCssKV("background-size","".concat(o,",100%"))),ce.push(e,i)):!v&&ce.push(e,he.genCssKV("background-image","linear-gradient(".concat("rgba(0,0,0,0.2)",", ").concat("rgba(0,0,0,0.2)","),linear-gradient(").concat(E,", ").concat(E,")"))),r})),!m){var T=ne((e.getAttribute(s)||g.defaultLightTextColor).split("|"));y+=he.genCssKV("color",T),I(e).forEach((function(e){return e.setAttribute(i,T)}))}}}f&&(d.test(n)&&(p[a]=te(n)),C?ce.push(e,he.genCssKV(a,o)):y+=he.genCssKV(a,o))}))})),y){e.setAttribute("data-style",p.cssText);var C="".concat("js_darkmode__").concat(this._idx++);e.classList.add(C),a+=y?he.genCss(C,y):""}r=e,n="",Array.prototype.forEach.call(r.childNodes,(function(e){3===e.nodeType&&(n+=e.nodeValue.replace(/\s/g,""))})),n.length>0&&(g.delayBgJudge?ue.push(e):ce.contains(e,(function(e){a+=he.genCss(e.className,e.cssKV)})))}return se.emit("afterConvertNode",e),a}}])&&W(t.prototype,r),n&&W(t,n),Object.defineProperty(t,"prototype",{writable:!1}),e}(),se=new x,ue=new j("".concat("js_darkmode__","text__")),ce=new A("".concat("js_darkmode__","bg__")),he=new N,fe=new V,de=new le,ge=new RegExp("".concat("js_darkmode__","[^ ]+"),"g"),be=null,pe=function(e){var t=arguments.length>1&&void 0!==arguments[1]?arguments[1]:{type:"dom"};if(t.force&&(he.isFinish=!1),!he.isFinish)try{de.isDarkmode=g.mode?"dark"===g.mode:e.matches,"dom"===t.type?(de.isDarkmode&&"function"==typeof g.begin&&g.begin(fe.hasDelay()),Array.prototype.forEach.call(fe.get(),(function(e){if(de.isDarkmode&&e.className&&"string"==typeof e.className&&(e.className=e.className.replace(ge,"")),de.isDarkmode||se.length)if(g.needJudgeFirstPage){var t=e.getBoundingClientRect(),r=t.top,n=t.bottom;r<=0&&n<=0?he.addCss(de.convert(e),!1):r>0&&r<h||n>0&&n<h?(fe.addFirstPageNode(e),he.addCss(de.convert(e),!0)):(g.needJudgeFirstPage=!1,he.writeStyle(!0),fe.showFirstPageNodes(),"function"==typeof g.showFirstPage&&g.showFirstPage(),he.addCss(de.convert(e),!1))}else he.addCss(de.convert(e),!1)})),se.loopTimes++):"bg"===t.type&&de.isDarkmode&&ue.forEach((function(e){return ce.contains(e,(function(e){he.addCss(he.genCss(e.className,e.cssKV),!1)}))})),(g.needJudgeFirstPage||!g.needJudgeFirstPage&&!fe.showFirstPage)&&"function"==typeof g.showFirstPage&&g.showFirstPage(),he.writeStyle(),fe.emptyFirstPageNodes(),de.isDarkmode||(g.needJudgeFirstPage=!1,g.delayBgJudge=!1,null===g.container&&"dom"===t.type&&fe.length&&fe.delay())}catch(e){console.log("An error occurred when running the dark mode conversion algorithm\n",e),"function"==typeof g.error&&g.error(e)}};function ye(e,t){me(t),fe.set(e),pe(be,{force:!0,type:"dom"})}function me(){var e=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};if(!g.hasInit){g.hasInit=!0;var t=g.whitelist.tagName;e.whitelist&&e.whitelist.tagName instanceof Array&&e.whitelist.tagName.forEach((function(e){e=e.toUpperCase(),-1===t.indexOf(e)&&t.push(e)})),["dark","light"].indexOf(e.mode)>-1&&(g.set("string",e,"mode"),document.getElementsByTagName("html")[0].classList.add(a)),g.set("function",e,"begin"),g.set("function",e,"showFirstPage"),g.set("function",e,"error"),g.set("boolean",e,"needJudgeFirstPage"),g.set("boolean",e,"delayBgJudge"),g.set("dom",e,"container"),g.set("string",e,"cssSelectorsPrefix"),g.set("string",e,"defaultLightTextColor"),g.set("string",e,"defaultLightBgColor"),g.set("string",e,"defaultDarkTextColor"),g.set("string",e,"defaultDarkBgColor"),!g.mode&&null===be&&window.matchMedia&&(be=window.matchMedia(n)).addListener(pe)}}function ve(e){fe.set(e),null!==g.container&&(ce.update(e),ue.update(e)),pe(be,{force:!0,type:"bg"})}function ke(e){e.forEach((function(e){return se.extend(e)}))}}])}));</script>
+
+    
+<script type="module" nonce="1963225876" reportloaderror>!function(){try{new Function("m","return import(m)")}catch(o){console.warn("vite: loading legacy build because dynamic import is unsupported, syntax error above should be ignored");var e=document.getElementById("vite-legacy-polyfill"),n=document.createElement("script");n.src=e.src,n.onload=function(){System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))},document.body.appendChild(n)}}();</script>
+<script type="module" crossorigin src="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/appmsg.l5qfyd5x2b972eb9.js" nonce="1963225876" reportloaderror></script>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/modulepreload-polyfill.l5qfyd5x922de91e.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/vendor.l5qfyd5xcbff91da.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/event.l5qfyd5x8c1c990f.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/comm_utils.l5qfyd5xc0ee952c.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/comm_report.l5qfyd5x79f8b683.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/page_utils.l5qfyd5xd022fe8a.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/vueComponentNormalizer.l5qfyd5x993f3a42.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/weui_a11y.l5qfyd5xe36412fa.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/wxwork_hidden.l5qfyd5xf9b56484.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/loadscript.l5qfyd5x73a6efd1.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/voice_component.l5qfyd5x350c8503.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/bottom_modal.l5qfyd5xdb2e6372.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/outer_link.l5qfyd5xbd893859.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/dom.l5qfyd5x44f98b7c.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/review_image.l5qfyd5x0ee59587.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/controller.l5qfyd5x05d6d079.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/see_more.l5qfyd5xc447a9eb.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/set_article_read.l5qfyd5x02e9735f.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/background_color.l5qfyd5x218d7be7.js" reportloaderror>
+<link rel="modulepreload" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/modal.l5qfyd5x6d82b192.js" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/weui_a11y.l5qfyd5x1644269a.css" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/wxwork_hidden.l5qfyd5xd5c79a41.css" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/bottom_modal.l5qfyd5x5bca8910.css" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/controller.l5qfyd5x0e500ba2.css" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/see_more.l5qfyd5x3d89d3d2.css" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/appmsg.l5qfyd5x9841b639.css" reportloaderror>
+<link rel="stylesheet" href="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/weemoji.l5qfyd5xcf779aa2.css" reportloaderror>
+
+
+
+
+
+    <style>
+      .cooldown_tips {
+        margin: 30px auto;
+        margin-top: 0;
+        display: flex;
+        align-items: center;
+        padding: 10px;
+        font-size: 14px;
+        background-color: #f6f7f9;
+        border-radius: 6px;
+      }   
+      .cooldown_tips_icon {
+        display: block;
+        width: 18px;
+        height: 18px;
+        margin-right: 8px;
+      }
+    </style>
+  </head>
+
+  <body id="activity-detail" class="zh_CN wx_wap_page 
+
+                                            wx_wap_desktop_fontsize_2    sougou_body
+ comment_feature
+ discuss_tab appmsg_skin_default appmsg_style_default">
+    
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+  var biz = "MzIzNDI0NDI2NQ==" || "";
+  var sn = "" || "" || "";
+  var mid = "2649485996" || "" || "";
+  var idx = "1" || "" || "";
+  window.__allowLoadResFromMp = true; // 允许从mp.weixin.qq.com加载js资源
+  // window.__loadAllResFromMp = true; // 所有js资源都从mp域名加载
+</script>
+
+<script  nonce="1963225876" reportloaderror>
+var page_begintime = (+new Date());
+// 辟谣需求
+var is_rumor = "";
+var norumor = "";
+if (!!(is_rumor * 1) && !(norumor*1) && !!biz && !!mid) {
+  if (!document.referrer || document.referrer.indexOf("mp.weixin.qq.com/mp/rumor") == -1){
+    location.href = "http://mp.weixin.qq.com/mp/rumor?action=info&__biz=" + biz + "&mid=" + mid + "&idx=" + idx + "&sn=" + sn + "#wechat_redirect";
+  }
+}
+</script>
+
+
+    <link rel="dns-prefetch" href="//res.wx.qq.com" reportloaderror>
+<link rel="dns-prefetch" href="//mmbiz.qpic.cn" reportloaderror>
+<link rel="dns-prefetch" href="https://wxa.wxs.qq.com" reportloaderror>
+<link rel="shortcut icon" type="image/x-icon" href="//res.wx.qq.com/a/wx_fed/assets/res/NTI4MWU5.ico" reportloaderror>
+<link rel="mask-icon" href="//res.wx.qq.com/a/wx_fed/assets/res/MjliNWVm.svg" color="#4C4C4C" reportloaderror>
+<link rel="apple-touch-icon-precomposed" href="//res.wx.qq.com/a/wx_fed/assets/res/OTE0YTAw.png" reportloaderror>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+String.prototype.html = function (encode) {
+  var replace = ["&#39;", "'", "&quot;", '"', "&nbsp;", " ", "&gt;", ">", "&lt;", "<", "&yen;", "¥", "&amp;", "&"];
+  // 最新版的safari 12有一个BUG，如果使用字面量定义一个数组，var a = [1, 2, 3]
+  // 当调用了 a.reverse() 方法把变量 a 元素顺序反转成 3, 2, 1 后，
+  // 即使此页面刷新了， 或者此页面使用 A标签、 window.open 打开的页面，
+  // 只要调用到同一段代码， 变量 a 的元素顺序都会变成 3, 2, 1
+  // 所以这里不用 reverse 方法
+  /*
+  if (encode) {
+      replace.reverse();
+  }*/
+  var replaceReverse = ["&", "&amp;", "¥", "&yen;", "<", "&lt;", ">", "&gt;", " ", "&nbsp;", '"', "&quot;", "'", "&#39;"];
+  var target;
+  if (encode) {
+    target = replaceReverse;
+  } else {
+    target = replace;
+  }
+  for (var i = 0, str = this; i < target.length; i += 2) {
+    str = str.replace(new RegExp(target[i], 'g'), target[i + 1]);
+  }
+  return str;
+};
+
+window.isInWeixinApp = function () {
+  return /MicroMessenger/.test(navigator.userAgent);
+};
+
+window.getQueryFromURL = function (url) {
+  url = url || 'http://qq.com/s?a=b#rd'; // 做一层保护，保证URL是合法的
+  var tmp = url.split('?'),
+    query = (tmp[1] || "").split('#')[0].split('&'),
+    params = {};
+  for (var i = 0; i < query.length; i++) {
+    var arg = query[i].split('=');
+    params[arg[0]] = arg[1];
+  }
+  if (params['pass_ticket']) {
+    params['pass_ticket'] = encodeURIComponent(params['pass_ticket'].html(false).html(false).replace(/\s/g, "+"));
+  }
+  return params;
+};
+
+(function () {
+  var params = getQueryFromURL(location.href);
+  window.uin = params['uin'] || "" || '';
+  window.key = params['key'] || "" || '';
+  window.wxtoken = params['wxtoken'] || '';
+  window.pass_ticket = params['pass_ticket'] || '';
+  window.appmsg_token = "";
+
+  var ua = navigator.userAgent;
+  if (ua.match(/Mac\sOS\sX\s(\d+[\.|_]\d+)/) || ua.match(/Windows(\s+\w+)?\s+?(\d+\.\d+)/) || ua.match(/Linux\s/)) {
+    document.body.classList.add('pages_skin_pc');
+  }
+})();
+</script>
+    
+<script type="text/javascript" nonce="1963225876" reportloaderror>window.PAGE_MID="mmbizwap:appmsg/newindex.html"</script>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+  var write_sceen_time = (+new Date());
+  var preview = "" * 1 || 0;
+
+  var currencyMap = {
+    'USD': '$',
+    'HKD': 'HK$',
+    'CAD': 'C$',
+    'AUD': 'A$',
+    'TWD': 'NT$',
+    'JPY': 'JPY￥',
+    'EUR': '€',
+    'SGD': 'S$',
+    'GBP': '£',
+    'NZD': 'NZ$',
+    'MYR': 'RM',
+    'KZT': '〒',
+    'KRW': '₩',
+    'THB': '฿',
+    'PHP': '₱',
+    'TRY': '₺',
+    'MXN': 'Mex$',
+    'CNY': '￥'
+  };
+  var can_use_wecoin = '1' * 1; // 是否个人号
+  var wecoin_tips = '0' * 1; // 是否出教育弹窗
+  /* var can_use_wecoin = 1; */
+  var wecoin_amount = '0' * 1; // 微信豆个数
+</script>
+
+<div id="js_article" class="rich_media">
+  
+  <div id="js_top_ad_area" class="top_banner"></div>
+  
+  <div class="rich_media_inner">
+    
+    
+    <div id="page-content" class="rich_media_area_primary">
+      <div class="rich_media_area_primary_inner js_rich_media_area_primary_inner">
+        
+        
+        
+                <div id="img-content" class="rich_media_wrp">
+          
+          <h1 class="rich_media_title " id="activity-name">
+            
+【2022.7.19】图书推荐
+          </h1>
+          <div id="meta_content" class="rich_media_meta_list">
+                                      <span id="copyright_logo" class="wx_tap_link js_wx_tap_highlight rich_media_meta icon_appmsg_tag appmsg_title_tag weui-wa-hotarea">原创</span>
+                                                      <span class="rich_media_meta rich_media_meta_text">
+                                                                                    <span role="link" tabindex="0" id="js_author_name" class="wx_tap_link js_wx_tap_highlight rich_media_meta_link weui-wa-hotarea" datarewardsn="" datatimestamp="" datacanreward="0">布克布克</span>
+                                                                            </span>
+                                      
+                                                                <span class="rich_media_meta rich_media_meta_nickname" id="profileBt">
+              <a href="javascript:void(0);" class="wx_tap_link js_wx_tap_highlight weui-wa-hotarea" id="js_name">
+                布克布克              </a>
+              <div id="js_profile_qrcode" aria-hidden="true" class="profile_container" style="display:none;">
+                <div class="profile_inner">
+                  <strong class="profile_nickname">布克布克</strong>
+                  <img class="profile_avatar" id="js_profile_qrcode_img" src="" alt="">
+
+                  <p class="profile_meta">
+                  <label class="profile_meta_label">微信号</label>
+                  <span class="profile_meta_value">new_buke</span>
+                  </p>
+
+                  <p class="profile_meta">
+                  <label class="profile_meta_label">功能介绍</label>
+                  <span class="profile_meta_value">个人订阅号</span>
+                  </p>
+                </div>
+                <span class="profile_arrow_wrp" id="js_profile_arrow_wrp">
+                  <i class="profile_arrow arrow_out"></i>
+                  <i class="profile_arrow arrow_in"></i>
+                </span>
+              </div>
+            </span>
+            <em id="publish_time" class="rich_media_meta rich_media_meta_text"></em>
+            <em id="js_ip_wording_wrp" class="rich_media_meta rich_media_meta_text" role="option" style="display: none;">发表于<span id="js_ip_wording" ></span></em>
+
+          </div>
+
+          
+                                                                              <div id="js_tags" class="article-tag__list single-tag__wrp js_single js_wx_tap_highlight wx_tap_card" data-len="1"
+                        role="link" tabindex="0"
+            aria-labelledby="js_article-tag-card__left js_a11y_comma js_article-tag-card__right"
+                      >
+                          
+                                                <span aria-hidden="true" id="js_article-tag-card__left" class="article-tag-card__left">
+                    <span class="article-tag-card__title">收录于合集</span>
+                    <span class="article-tag__item-wrp no-active js_tag" data-url="https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzIzNDI0NDI2NQ==&amp;action=getalbum&amp;album_id=2321173804498485251#wechat_redirect" data-tag_id="" data-album_id="2321173804498485251" data-tag_source="4">
+                      <span class="article-tag__item">#书单</span>
+                    </span>
+                  </span>
+                  <span aria-hidden="true" id="js_article-tag-card__right" class="article-tag-card__right">22个</span>
+                                                    </div>
+
+          
+                    
+                                        
+
+          
+                    
+
+          
+                              
+                                        
+                    
+                    
+          
+          <div class="rich_media_content                                       "
+            id="js_content" style="visibility: hidden;">
+            <section><section><section style="border-width: initial;border-style: none;border-color: initial;margin-top: 5px;margin-bottom: 5px;width: 90%;"><section><section style="margin-top: 10px;margin-bottom: 10px;"><section><section style="margin-top: 10px;margin-bottom: 10px;"><p style="text-align: center;width: 90%;margin-right: auto;" data-width="90%"><img class="rich_pages wxw-img" data-ratio="0.1946624803767661" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_gif/Ljib4So7yuWiaibnZHYib0rg4wZibRnXvibHQYoDm0MeFhSib6kPc69ic0gB8Y2jRlaicROoaOKicXD0icekhCxF66pOG1k5w/640" data-w="637" data-width="90%" style="width: 90%;height: auto;"  /><span style="background-color: rgb(255, 255, 255);font-family: -apple-system-font, BlinkMacSystemFont, &quot;Helvetica Neue&quot;, &quot;PingFang SC&quot;, &quot;Hiragino Sans GB&quot;, &quot;Microsoft YaHei UI&quot;, &quot;Microsoft YaHei&quot;, Arial, sans-serif;font-size: 16px;letter-spacing: 0.544px;"></span></p></section></section><p style="width: 80%;text-align: center;margin-right: auto;margin-left: auto;" data-width="80%"><br  /></p></section></section></section></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">兰亭序杀局3</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.423529411764706" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8m70K8xlmr32SkO5yJ2WP8axqBicuK5ia8LyibJsJfARPibug3uXYSvkhzA/640?wx_fmt=jpeg-wxVKjBtUE" data-type="jpeg-wxVKjBtUE" data-w="850" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><p style="text-align: left;"><span style="font-size: 14px;"><br  /></span></p><p style="text-align: left;"><span style="font-size: 14px;"></span></p><h3 style="text-align: left;"><span style="font-size: 14px;">编辑推荐：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">1.《兰亭序杀局1》《兰亭序杀局2》口碑良好，好评如潮，读者、网友纷纷点赞推荐！<br  />2.陈坤、和菜头、马伯庸、流潋紫等名人大咖读后纷纷惊艳，联袂推荐！<br  />3.《兰亭序杀局3》诚意收官，传世行书《兰亭序》的所有真相全部揭开！</span></p><h3 style="text-align: left;"><span style="font-size: 14px;">内容介绍：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">亡命天涯的萧君默摇身一变成为平叛功臣回到长安，然而他却丝毫没有荣归故里、凯旋还朝的喜悦。因为他知道，在前方等待他的，将是比以往任何时候都更为可怕的阴谋、纷争与杀戮，而表面上繁华太平的长安，实则已是暗流涌动、杀机四伏，很快就将成为各方势力终极对决的血腥战场。<br  />萧君默能够挽回这场注定到来的劫难吗？<br  />且看最后一战，他如何运筹帷幄，力挽狂澜，拯救社稷！</span></p><h3 style="text-align: left;"><span style="font-size: 14px;">媒体推荐：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">1.中国传统文化的象征！中国历史文化的高度还原 ！<br  />2.《兰亭序杀局》系列诚意收官！所有真相全部揭晓！<br  />3.陈坤、马伯庸、流潋紫等名人大咖读后分分惊艳，发博支持！<br  />4.《兰亭序杀局1》《兰亭序杀局2》口碑爆棚，好评刷爆读者群、媒体圈！</span></p></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">肯·福莱特悬疑经典（共6册）</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.3333333333333333" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8WPZG6nBlQficTUuwFNteAspxMiciaavJ6TN0aibowKlrXEDfMI3UqDaHfg/640?wx_fmt=jpeg-0JStz0" data-type="jpeg-0JStz0" data-w="960" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><h3 style="text-align: left;"><span style="font-size: 14px;"></span></h3><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>编辑推荐：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;">总是一不小心就读了一个通宵！<br  />通宵小说大师肯·福莱特悬疑经典。<br  />《爱伦·坡终身大师奖得主，《纽约时报》畅销书榜头号作家。<br  />他的畅销小说《巨人的陨落》，各国读者平均3个通宵读完！<br  />20部小说被译成33种语言，畅销80多国，累计总销量超1.6亿册。<br  />花90分钟，来一次一生未曾想象的冒险！<br  />《针眼》构思巧妙，一旦读了开头，就忍不住要一口气读到结尾。<br  />《危险的财富》高潮迭起，犹如触电般的悬疑感！<br  />《寒鸦行动》特别具有画面感的悬疑故事，紧张刺激，这无疑是福莱特十分受欢迎的小说之一。<br  />《大黄蜂奇航》这部小说再次证明了—肯·福莱特是讲故事的天才！<br  />《鹰翼行动》没有任何一个好莱坞编剧能够像肯•福莱特一样完美地讲述这次冒险。<br  />《突然亡命天涯》是肯·福莱特真正的杰作！<br  />在欧美出版界，肯·福莱特这个名字就是畅销的保证。<br  />谁绝不放弃，谁就有一丝活下去的希望。<br  />巨大的财富背后，往往有巨大的代价。<br  />一天中无限黑暗的时刻，正是无比接近光明的时刻，人生也如此。<br  />命运，只宠爱真正勇敢的人。<br  />人人都爱自由，懂得捍卫的人，才能拥有自由。</span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>媒体推荐：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;">《针眼》构思巧妙，一旦读了开头，就忍不住要一口气读到结尾。<br  />——《出版人周刊》<br  />高潮迭起，犹如触电般的悬疑感！<br  />——《旧金山纪事报》<br  />特别具有画面感的悬疑故事，紧张刺激，这无疑是福莱特十分受欢迎的小说之一。<br  />——《洛杉矶时代报》<br  />这部小说再次证明了—肯·福莱特是讲故事的天才！<br  />——《人物》<br  />没有任何一个好莱坞编剧能够像肯•福莱特一样完美地讲述这次冒险。<br  />——《辛辛那提调查报》<br  />戏剧冲突和历史真实被如此生动地展现，引人入胜，肯·福莱特是真正的大师！<br  />——《纽约时报》<br  />小说的长短对肯·福莱特作品在各国的畅销没有任何影响：其作品累计销量1.6亿册，被翻译成33种语言，风靡80多个国家。<br  />——《华尔街日报》<br  />高智商悬疑小说很罕见，肯·福莱特写的却每本都是。<br  />——英国《书刊评介》</span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>作者简介：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;"><strong>肯·福莱特&nbsp;(Ken Follett，1949－)&nbsp;</strong><br  />通宵小说大师，爱伦·坡终身大师奖得主。<br  />他创作的畅销小说《巨人的陨落》，各国读者平均3个通宵读完！<br  />20部小说被译成33种语言，畅销80多国，累计总销量超1.6亿册。<br  />在欧美出版界，肯·福莱特这个名字就是畅销的保证。<br  />他说：“很多作家只写能取悦他们自己的东西，并模模糊糊地希望这也能取悦别人。但我每写一页都在清醒地思考：读者会怎么想？读者觉得这真的会发生吗？读者关心这些吗？读者想要知道接下来会发生什么吗？我敬佩那些用文字和新奇结构进行文学实验的作家，但我从不这么玩。”</span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>内容简介：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;"><strong>《突然亡命天涯》</strong><br  />简意外发现，自己被深爱的男友埃利斯欺骗了。深受打击之后，她与追求者让-皮埃尔结了婚，两人远赴阿富汗，成为了当地的医疗工作者。本以为开始新生活的简，却发现自己陷入了更大的阴谋……三个人的命运被爱情，战争和仇恨越推越远，最终引发了一场噩梦般的生死逃亡。<br  />在这条亡命之路上，幸福与和平能否最终来临？<br  /><strong>《针眼》</strong><br  />一上市即受到广泛关注，并于次年获得爱伦•坡优秀小说奖，至1999年各国累计销量逾1000万册，是美国《出版人周刊》《时代周刊》等杂志强烈推荐的畅销小说。<br  /><strong>《危险的财富》</strong><br  />一部维多利亚时代浮华糜烂的家族史诗，交织着贪婪和仇恨、自私与残忍、冷血的谋杀和虚幻的爱情。<br  /><strong>《寒鸦行动》</strong><br  />二战期间，有一个全部为女性的情报部门，代号“寒鸦”。这群勇敢的女性在整个欧洲展开了激烈的抗击纳粹行动。然而，她们被出卖了。一张天罗地网正等待着“寒鸦”们……<br  /><strong>《大黄蜂奇航》</strong><br  />一名少年无意间闯入了德军秘密基地，发现了纳粹所向披靡的秘密。翻开本书，直面第二次世界大战英德空战的现场与真相。<br  /><strong>《鹰翼行动》</strong><br  />奥斯卡获奖影片《逃离德黑兰》的前传！书中的每一个细节都曾真实发生在世界上那个极度混乱的角落。没有任何一个好莱坞编剧能够像肯•福莱特一样完美地讲述这场著名的冒险。</span></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">静心：索达吉堪布精选（全7册）</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.3333333333333333" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8GxQ3GqDHLZ3icks1RFT5O931PGa6E5rdMYkHa1n9zonlfJiaFvumOthQ/640?wx_fmt=jpeg" data-type="jpeg" data-w="1080" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><p style="text-align: left;"><span style="font-size: 14px;"></span></p><h3 style="text-align: left;"><span style="font-size: 14px;">编辑推荐：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">1.全世界具有影响力的佛教大德索达吉堪布与你共同倾听一代人的执念与出离！<br  />2.这是一套心灵成长之书。本书中记录的烦恼与疑惑，或许是你正在经历或将会经历的，索达吉堪布以佛法精髓所作出的回应，必将使你获得不一样的人生体验！<br  />3.“未曾生我谁是我？生我之时我是谁？”当你看到这些曾被轻视的人生，或许会发现真正重要的人生。<br  />4.即使身体奔波忙碌，心也要是宁静的，这才是对生命，更厚重的思考方式。</span></p><h3 style="text-align: left;"><span style="font-size: 14px;">内容介绍：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">本套书共7册，是索达吉堪布静心之作，望忙碌的你在阅读中身心得到片刻的休憩。<br  />《有什么舍不得》：索达吉堪布倾听修行人的讲述，其间给出数语点评，这些场景大部分发生在寂静的山谷、清新的树林、布谷鸟围绕的木屋里。“生从何来，死向何去？如何面对疾病和死亡的威胁？这一生，对自他能有多少利益？”每个问题，索达吉堪布都以佛法精髓做出回应，启发你和书中人一起，思考人生的终极意义。<br  />《没什么放不下》：和《有什么舍不得》互为姊妹篇，修行人真实的故事，往往伴随着人生的关键转折，站在这个节点上，告别浑浑噩噩的盲从，开始对内心和宇宙的认真求索。<br  />《能断——金刚经给你强大》：这是一本能断人生各种执著，给身心带来强大正能量的生命开示录。只要你掌握了哪怕其中短短一句的智慧，苦不苦什么的都会无所畏。<br  />《不离》：书中一些教言似乎尖锐，个别人看后或许有如坐针毡之感。但正如阿底峡尊者所言：“击中要害的批评，是最殊胜的教言；指摘弟子过失的师父，是最好的上师。”爱之深，才会责之切。<br  />《幸好有烦恼》：人为了什么而活着？难道就在吃喝享乐中度此一生吗？相信不少人都有过这种困惑，也在想方设法地寻觅答案。本书以发生在31个人身上的真实故事，带你认识人生的终极目标。愿你以此明了烦恼的大作用，读懂一个另外的自己。<br  />《有求》：度母是观音菩萨的化身，在当今时代，祈祷度母的感应最快。人一生会有各种心愿，若想达成，并非磕几个头、烧几炷香就行，关键要懂得方法。希望有缘者通过此书，找到适合自己的方法，遣除一切苦难，成就一切所愿。<br  />《心灵的诺亚方舟》：与众多知识分子、海内外学者交流探讨环保、和平、道德、跨宗教等问题，希望提升一切生命的福祉。将佛教真理与当今科学结合起来，引导世人正确面对学业、情感、工作、人生。</span></p><p style="text-align: left;"><span style="font-size: 14px;"></span><br  /></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">解密商业大佬的成功秘籍套装5册）</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.350687622789784" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic837mOcYoicyNprqY7DXIQ4j14AuNNiaxWFYJmLxOnKEUvgelZxfCR9iaRA/640?wx_fmt=jpeg" data-type="jpeg" data-w="1018" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><h3 style="text-align: left;"><span style="font-size: 14px;"><strong><span style="color: #e47911;"></span></strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;">套装包含《未来，相信而看见：马云的商业管理智慧》、《以用户为本：马化腾的商业管理智慧》、《为联接世界而生：任正非的商业管理智慧》、《三分管人，七分带人：带团队就是这几招》、《哈佛情商课》。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>作者简介：</strong><br  />星野，现任某网络公司CEO，畅销书作家。在商界纵横驰骋多年，致力于市场营销学、管理学研究。经商之余，潜心研究管理科学，结合实践，对经营管理制胜秘诀有了深刻的领悟和阐释。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>未来，相信而看见：马云的商业管理智慧</strong><br  />编辑推荐：<br  />了解马云，你会知道——<br  />★这个世界不是因为你能做什么，而是你该做什么。<br  />★电子商务只是一条“摆渡的船”，未来10年、20年只有新零售，纯电商时代很快会结束，必须打造新零售，使线上、线下与物流结合，使公司从“比谁做得更快”向“消灭库存，让企业库存降到零”转变。<br  />★关系特别不靠谱，做生意不能凭关系，做生意也不能凭小聪明。做战略最忌讳的是面面俱到，一定要记住重点突破，所有的资源在点上突破，才有可能赢。<br  />★不要贪多，做精做透很重要，碰到一个强大的对手或者榜样的时候，你应该做的不是去挑战它，而是去弥补它。<br  />★小企业要有大的胸怀，大企业要讲细节。</span></p><p style="text-align: left;"><span style="font-size: 14px;">内容简介：<br  />50年人生经验，20年创业精髓，全书结合马云的传奇经历，首次毫无保留地深刻剖析人生的各个环节，讲述成就事业之道、为人处世之道。全书文笔诚恳真挚，朴实无华，往往寥寥数语就让你豁然开朗，直达成功的本质。<br  />书中涵盖马云的经营智慧、领导智慧、管理智慧、战略智慧、生活智慧等方面，条分缕析、深入浅出、娓娓道来，不经意间，恍如与马云倾心面谈。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>以用户为本：马化腾的商业管理智慧</strong><br  />编辑推荐：<br  />马化腾倡导分享经济。在他看来，互联网企业分享经济的一个重要方面就是搭建好平台，以开放协作的态度来拥抱每一个竞争者，每一个合作伙伴。<br  />马化腾倡导精品战略。在他看来，在打造每一款产品时都要精益求精，把自己当成*挑剔的用户。<br  />马化腾倡导集体决策。在他看来，一个人的力量必定有限，团队的力量才是无限大。<br  />马化腾倡导用户至上。在他看来，一切应以用户价值为依归。专注用户，才是生存之本。<br  />马化腾倡导持续创新。在他看来，在激烈的市场竞争中，要么革新，不断地再创造；要么停滞不前，走向消亡。</span></p><p style="text-align: left;"><span style="font-size: 14px;">内容简介：<br  />本书原汁原味地记录和诠释了马化腾的创业与管理思想精华言论，完整展现马化腾卓越的创业信念、管理思想、创新理念、技术法则、营销与竞争策略、资本运作等。同时，本书也汇集了马化腾关于人生与拼搏的精彩言论，是马化腾在创业、管理、用人、领导思想与理念方面的精华。本书为众多年轻人提供经验和蓝本，也为读者注入人生腾飞的力量。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>为联接世界而生：任正非的商业管理智慧</strong><br  />编辑推荐：<br  />任正非是一个企业家，也是一个思想家。他做企业不以追求利润为目标，他说：华为公司不需要利润最大化，只将利润保持在一个较合理的尺度。<br  />任正非是一个善于调动员工精神的管理者，他说：运筹不在帷幄而在沙场，决胜不在千里而在心里，所有人都要走向前线。<br  />任正非是一个宽容的领导者，他说：在我们公司的创新问题上，第一一定要强调价值利润；第二，要更多地宽容失败。<br  />任正非是一个有危机意识的企业家，他说：古今兴亡多少事，不废江河万古流。多少公司在繁荣鼎盛时期轰然倒下，鲜花的背后可能是墓志铭。别人的教训，就是我的墓志铭。</span></p><p style="text-align: left;"><span style="font-size: 14px;">内容简介：<br  />任正非曾是一名军人，后来他以21000元创办了一家小的不能再小的公司，*终成为世界五百强企业。他是中国企业家中，独特的倔老头。他一手创建华为，打过无数场硬仗，但从不标榜成功，也不炫耀财务，而是无时无刻不再强调“冬天来了”。本书深刻探讨了任正非的商业管理智慧，相信可以为您在为人处世、创业领域、创新创造、职场生涯带来不一样的感悟。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>三分管人，七分带人：带团队就是这几招</strong><br  />"编辑推荐：<br  />能聚人者以一当十，善待人者合百为一。<br  />管人是一门学问，带人是一门艺术：颐指气使，用惩罚使人害怕不是本事；不令而从，凭魅力让有本事的人为己所用才是本事。<br  />高明的领导者懂得带人，懂得充分发挥团队中每个成员的聪明才智，让他们不断提高，不断进步。高明的领导者懂得激发员工的工作热情，培养员工的工作能力，让员工不仅跟着干，还能独当一面。<br  />本书将告诉你如何具备登高一呼、应者云集的号召力，如何习得人尽其才、平衡各种力量的统筹能力，如何学会应对困难、处理问题的能力。</span></p><p style="text-align: left;"><span style="font-size: 14px;">内容简介：<br  />作为管理者，应当使员工渴求不断地完善自己，从而将自身潜能不断地发挥出来。在这个过程中，员工会热情主动地去完成工作，有时甚至会不计报酬地寻求创造性的解决方案。而这些，才是企业发展的真正动力，也是本书的管人要义。本书结合真是、生动的实例，将管理的精髓一一展示，引导管理者强化自身能力，找到管人的有效途径，管好人带好队伍，提升团队的执行力和战斗力，开创卓越的管理局面。"</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>哈佛情商课</strong><br  />编辑推荐：<br  />情商是一个人获得成功的关键。一个人若想在社会上有所作为，就必须有高情商，也就是要会说话、会办事。只有具备了这些条件，别人蔡更容易接纳你、尊重你、帮助你。<br  />本书以如何提高情商为主题，用具体的案例多侧面、多角度、多层次地阐述了现代人立足社会、为人处世应当掌握的技巧和策略，使读者能够从中获得一些启发，进一步提升能力。<br  />书中的方法一看就懂、一学就会、一用就灵，可以帮助你轻松驾驭人生局面，实现事业的成功和生活的幸福。<br  />如果你一直被人吐槽情商低，那你真的需要好好学习一下关于情商的知识了。若想不走弯路，就赶快掌握提高情商的技巧吧。</span></p><p style="text-align: left;"><span style="font-size: 14px;">内容简介：<br  />“情商”一词，最早是由哈佛大学心理学家霍德华·加德纳提出的。他在《精神状态》一书中提出人有“多元智慧”，自此开启了情商学说的新智。<br  />所谓情商，就是一种情绪管理的能力。哈佛大学教授、著名心理学家丹尼尔·戈尔曼说：“使一个人成功的要素中，智商作用只占20%，而情商作用却占80%。”<br  />情商是一个人获得成功的关键。一个高情商的人不仅在生活中如沐春风，爱情上春风得意，做领导也能带领团队取得更辉煌的成绩。高情商的人即使是个职场新人，也能获得良好的人际关系，为自己的晋升创造良好的条件……</span></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">解读现代美国金融的崛起：《摩根财团》 《汉密尔顿传》</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img data-ratio="1.4374307862679956" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8KNAPibh9evCc5oLuPpagHtuSIjn7LUCQqia196o9icicD3uDfYfiaN8ibDBw/640?wx_fmt=jpeg" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;" data-type="jpeg" data-w="903"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><p style="text-align: left;"><span style="font-size: 14px;"></span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>编辑推荐：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;">从源头和历史中真正解读美国现代金融的崛起！</span></p><p style="text-align: left;"><span style="font-size: 14px;">亚投行首任行长金立群先生“历时二载，凡三校”呕心校译，堪称“美国金融史经典”。</span></p><p style="text-align: left;"><span style="font-size: 14px;">汉密尔顿，美国二百年国运的真正缔造者，美国首任财政部长，一手促使美国走向资本主义道路，建立起美国金融的基本框架。</span></p><p style="text-align: left;"><span style="font-size: 14px;">《摩根财团》是有关美国金融王朝的一部鸿篇巨著，是一卷充满洞见的金融全景图：以摩根财团的视角，看整个华尔街、现代金融业的兴衰更替。</span></p><p style="text-align: left;"><span style="font-size: 14px;">汉密尔顿是美国开国元勋之一、美国《宪法》之父、美国首任财政部长、美国中央银行之父、美国货币之父、美国财政系统之父、美国国家信用体系之父、美国联邦制之父、美国两党制之父、美国税务之父、美国常备军之父、《联邦党人文集》主要作者……</span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>媒体推荐：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;">《摩根财团》以清晰的脉络展现了金融帝国——J.P.摩根，从维多利亚时期伦敦隐秘的开创历史，到1987年金融危机的全部细节。——Forbes</span></p><p style="text-align: left;"><span style="font-size: 14px;">罗恩•彻诺的《摩根财团》让我们审视现代金融业所陷入的贪婪，也让我们怀念起老皮尔庞特的时代，更让我们看到了与现在似曾相识的一次次金融危机。——Entertainment Weekly</span></p><p style="text-align: left;"><span style="font-size: 14px;">《摩根财团》作为金融、政治和华尔街的贪婪与野心的象征，以无与伦比的记述和表现力，铸就了一部史诗级巨著、一部条理清晰的杰作。——The New York Times<br  />这部备受赞誉的传记激发了屡获殊荣的嘻哈音乐剧，挽救了一位长期被指责诋毁的美国国父的名声。——《卫报》</span></p><p style="text-align: left;"><span style="font-size: 14px;">罗恩·彻诺生动地描述了这位美国建国之父。对建造现代美国而言，汉密尔顿的影响比其他人都要深远。一部精彩的传记。——《华盛顿邮报》</span></p><p style="text-align: left;"><span style="font-size: 14px;">罗恩·彻诺的书实在太引人注目了，因为他能客观地看待汉密尔顿的思想和行为。彻诺笔下的汉密尔顿总是在行动中，总是在追求一个不能达成的目标，被心中消极思想所困恼。——《纽约时报书评》</span></p><p style="text-align: left;"><span style="font-size: 14px;">我被汉密尔顿的故事深深吸引。汉密尔顿的命运是局外人成为内部人的典型故事，没有人能比汉密尔顿更能体现美国梦了。——音乐剧《汉密尔顿》制作人林·曼努尔·米兰达</span></p><p style="text-align: left;"><span style="font-size: 14px;">罗恩·彻诺的汉密尔顿传记精彩、全面、出色，有关汉密尔顿的传记虽然很多，但是彻诺的传记是至今为止我读过的尤为全面又令人信服的。——卡斯帕·温伯格，美国前国防部长，福布斯董事长</span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>作者简介：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;"><strong>罗恩·彻诺</strong><br  />美国作家协会主席，美国国家图书奖、普利策奖、美国历史图书奖获奖者，擅长撰写金融、商业和政治人物的传记。《财富》杂志称其为“美国传记作家的代表”。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>金立群</strong><br  />现任中国国家金融公司董事长，曾任财务部副部长，中国投资公司监事长兼党组副书记等；是迄今为止中国首个担任亚行副行长的副部级高官；著有《新国际经济体制与中国》《经济发展：理论与实践》，编著《英汉法汉财务金融词典》。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>罗恩·彻诺（Ron Chernow）</strong><br  />美国国家人文奖章获得者，《财富》杂志称其为“美国传记作家的代表者”。</span></p><p style="text-align: left;"><span style="font-size: 14px;">罗恩·彻诺的作品曾经荣获：美国国家图书奖、普利策奖、美国历史图书奖、美国书评人奖、乔治·华盛顿图书奖、普利策委员会国家传记作家奖、乔治·埃克尔斯奖、美国国家图书奖年度作品奖，他的作品入选“20世纪100部非虚构作品”“《福布斯》20本有影响力商业书籍”和“《财富》75本推荐图书”。</span></p><h3 style="text-align: left;"><span style="font-size: 14px;"><strong>内容简介：</strong></span></h3><p style="text-align: left;"><span style="font-size: 14px;"><strong>《摩根财团》</strong></span></p><p style="text-align: left;"><span style="font-size: 14px;">在一个半世纪里，摩根家族的四代人，在华尔街和伦敦金融城里缔造了神秘的金融帝国。这个金融帝国凭借不计其数的投资，在经济、社会、政治和外交等领域织成了无比繁复的人际关系网络。本书中如实记载了摩根财团斡旋于伍德罗·威尔逊、赫伯特·胡佛、富兰克林·罗斯福、温斯顿·邱吉尔、安德鲁·卡内基、亨利·福特等政要、巨贾间一些尘封的史料，在二战中摩根财团与墨索里尼、日本军国主义者、墨西哥独裁者和纳粹财政部长的秘密关系。</span></p><p style="text-align: left;"><span style="font-size: 14px;">二战结束以后，摩根的诸公司从绅士银行的典范演变为—个充满着敌意兼并、垃圾债券和杠杆收购的咄咄逼人的新经济环境中的先锋。</span></p><p style="text-align: left;"><span style="font-size: 14px;">摩根财团150年的发展历程就是一部资本市场发展过程的活教材，揭示了在典型的资本主义社会发展过程中，生动而恢弘的历史画卷：这里有私人企业和国家机器之间的较量，政府调控和市场作用之间的冲突，国家孤立主义和海外扩张主义之间的斗争，商业利益和民族利益之间的碰撞，个人意志和历史规律从矛盾走向统一的进程。而这所有的一切，时至今日仍然左右着金融格局和社会形态。</span></p><p style="text-align: left;"><span style="font-size: 14px;">《摩根财团》可以满足多方需要，金融从业者可以了解金融格局变化，增强专业分析和评估能力，提高金融产品收益；企业家可以学习如何把握政治局势，市场趋势，在竞争中规避风险，基业常青；政府监管部门可以研究如何加强对实业和金融界的管理而不扼杀其活力。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>《汉密尔顿传》</strong></span></p><p style="text-align: left;"><span style="font-size: 14px;">汉密尔顿对美国的影响，比绝大多数美国总统都要深远。</span></p><p style="text-align: left;"><span style="font-size: 14px;">汉密尔顿是美国开国元勋之一、美国《宪法》之父、美国首任财政部长、美国中央银行之父、美国货币之父、美国财政系统之父、美国国家信用体系之父、美国联邦制之父、美国两党制之父、美国税务之父、美国常备军之父，主要由他执笔的《联邦党人文集》是美国宪法精神的经典栓释。</span></p><p style="text-align: left;"><span style="font-size: 14px;">汉密尔顿设计了能让美国平稳运转的整套机制，包括运算体系、长期债务体系、税务体系、中央银行、海关系统。他的政治遗产，包括“工业建国之路”和建立一个强有力的中央政府等，在此后的美国历史中起着越来越显著的作用。</span></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">剑圣宫本武藏大全集</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img data-ratio="1.5995316159250585" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8FjGUwaxibOJpVh635KVID2vS4QSb4iapeW07o31RBam9ChF3Dg7M3KWg/640?wx_fmt=jpeg" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;" data-type="jpeg" data-w="854"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><h3><span style="font-size: 14px;"><strong><span style="color: #e47911;"></span></strong></span></h3><p style="text-align: left;"><span style="font-family: &quot;trebuchet ms&quot;, geneva, sans-serif;font-size: 14px;"></span><span style="font-size: 14px;">《剑圣宫本武藏大全集》（被誉为日本的金庸）日本著名作家吉川英治写了20年的长篇武侠小说，全景展现了一代剑圣宫本武藏的传奇一生。宫本武藏，日本家喻户晓的传奇人物。他苦练修行，一心求道，自创“二天一流“的剑道流派，参悟出“剑禅一如”的至高境界，从一个鲁莽无知的少年，成长为一代剑圣。《剑圣宫本武藏》全书共两辑。<br  />★日本一代剑圣的不朽传奇，著名作家吉川英治写了20年的日本经典武侠小说<br  />★献给有理想、正在苦恼的你，超越困境、挑战自我<br  />★连续再版七十余年，宫本武藏的故事在日本家喻户晓<br  />★《剑圣宫本武藏》倾尽了吉川英治所有的真诚与热忱，刻画了宫本武藏充满烦恼与争斗的奋斗历程。<br  />★在战国末期和江户时代转折点，泽庵、柳生石舟斋、佐佐木小次郎、吉冈清十郎、梦想权之助……个性鲜明的人物悉数登场，一步步见证了宫本武藏对梦想的追寻、对求道的执著。<br  />★《剑圣宫本武藏》表达了武藏不屈不挠、坚毅奋斗的精神。我读了中译本之后，也认为此书有巨大的吸引力。——金庸</span><span style="font-family: &quot;trebuchet ms&quot;, geneva, sans-serif;font-size: 14px;"></span></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">好习惯养成攻略</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.3935185185185186" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8dJuejicdvWGkSq3K38nOBHP7JVVDSlh2NRQhdd9gHicnIKSdQcYgYdww/640?wx_fmt=jpeg-DoeTCodJYEJuiSM" data-type="jpeg-DoeTCodJYEJuiSM" data-w="1080" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><p style="text-align: left;"><span style="font-size: 14px;"></span></p><p style="text-align: left;"><span style="font-size: 14px;">《微习惯》<br  />微习惯是一种非常微小的积极行为，你需要每天强迫自己完成它。微习惯太小，小到不可能失败。正是因为这个特性，它不会给你造成任何负担，而且具有超强的“欺骗性”，它也因此成了极具优势的习惯养成策略。<br  />微习惯策略的科学原理表明了人们无法长期坚持大多数主流成长策略的原因，也揭示了人们长期坚持微习惯策略的可能性。人们无法让改变的效果持久时，往往认为原因在于自己，但其实有问题的并不是他们本身，而是他们采用的策略。当你开始用微习惯策略教你的方法按照大脑的规律做事情时，持久改变其实很容易。</span></p><p style="text-align: left;"><span style="font-size: 14px;">《如何戒掉坏习惯》<br  />拖延症，乱花钱，熬夜，沉迷网络和手机，暴饮暴食，情绪极端……这些坏习惯在给予我们短暂的刺激与解放的同时，也夺走了我们人生的主动权。<br  />为什么在不知不觉中养成了坏习惯？想要摆脱坏习惯，无从下手怎么办？<br  />本书所要介绍的习惯终结术正是为想要戒掉坏习惯的人们精心准备的一份指南。戒掉坏习惯一般会经历四个阶段：禁欲期，动力缺乏期，稳定期，倦怠期。根据阶段不同，本书将坏习惯分为行动性习惯、身体性习惯、思考性习惯三大类，不同类型的习惯需要抓住的重点及对策也各不相同。习惯终结术将带我们直击坏习惯的要害，指引我们远离坏习惯，抵达良好习惯的彼岸，重新拿回人生主动权。<br  />此外，为了让大家对习惯终结术拥有更加清晰的认识，面对现代生活中的十大代表性坏习惯，作者运用习惯终结术进行了全面剖析，手把手教大家如何戒掉坏习惯。</span></p><p style="text-align: left;"><span style="font-size: 14px;">《坚持，一种可以养成的习惯》<br  />每个人都具有对抗新变化、维持现状的倾向，这是人的天性。想要将好的习惯坚持下去，你需要的不是意志力，而是养成习惯的诀窍和方法！本书系统地介绍了培养习惯的阶段性特征及相应的应对方法，教导读者如何掌握坚持下去的诀窍，科学克服惰性，将培养习惯的过程变得像刷牙般轻松自然。</span></p><p style="text-align: left;"><span style="font-size: 14px;">《从行动开始:自我管理的科学》<br  />如果想要改变人生，抱怨自己的缺点是没有用的，只靠意志力也无法成功，人们对自己的认识存在太多偏差，最靠得住的判断标准只有行动本身。无论是想戒除坏习惯，还是想培养好习惯，只有科学管理自己的行动，才能达到目标。本书完整介绍了在日本和美国广受推崇的“行为科学管理方法”，启发我们重新审视自己的认知和行动目标，掌握行动的最基本法则，灵活有效地规划自己的生活，学会不抱怨、不盲从，从而找到适合自己的人生道路！</span></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">哈佛商业评论·从职场小白到管理者的完美蜕变</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.3518099547511313" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8gFjWH7HQYjG0rzjqOqHQsSGOOfnjkJ1DicIDiaoYdY52y51sXql9ELXQ/640?wx_fmt=jpeg" data-type="jpeg" data-w="884" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><section style="margin-top: 5px;margin-bottom: 5px;"><p style="text-align: left;"><span style="font-size: 14px;"></span></p><p style="text-align: left;"><span style="font-size: 14px;">哈佛商业评论·从职场小白到管理者的完美蜕变【精选必读系列】（全8册）包含：《利用你的优势，找工作并不难》，《好员工与好老板，如何才能找到彼此》，《从契约关系到联盟关系》，《向上管理术——如何管理你的老板》，《管理者晋升手册》，《女性职场晋升手册》，《事业生活双全法则》，《远离职场语言暴力》</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>利用你的优势，找工作并不难</strong><br  />你为何总找不到心仪的工作？能力不强？为什么那些比你差的人混的风生水起？不要再喝鸡汤，来点干货，从阅读这篇文章起，认清你自己。<br  />管理大师彼特·德鲁克说过，“一个人要想有所作为，只能靠发挥优势。我们不可能在自己不擅长的事情上取得成就，更不用说那些自己根本无能为力的事情了。”</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>好员工与好老板，如何才能找到彼此</strong><br  />求职者如何找到合适的工作，企业如何招到适当的人，企业和员工怎么才能更“匹配”？</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>从契约关系到联盟关系</strong><br  />留住人才、培养人才一直是企业最关注的课题之一。过去企业与员工之间的契约关系始终围绕“稳定”，大公司里的员工只要尽职守责，工作就会安稳。而企业则可借此获得员工的忠诚，保障较低的人员流失率。<br  />但在全球化浪潮与信息时代的冲击下，稳定性被无法预测的快速变化所取代。而企业获得成功与保持领先的关键因素也变为适应能力和创业精神。这就要求员工要有这两方面的能力。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>向上管理术——如何管理你的老板</strong><br  />好老板鼓励员工，培养员工，为员工提供指导和支持，同时保持公平，提出建设性意见，并能够将团队整合为优秀团队。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>管理者晋升手册</strong><br  />从一个部门主管（管理者）到公司领导（领导者），是人在职场中一次最重要的职位升迁：开始跨部门管理多个业务，第一次负起盈亏责任。这是一次蜕变的过程，犹如“鲤鱼跳龙门”，转变过程令许多人饱受艰难和挫败。本期这组文章通过广泛的访问和洞察，从转为整个过程到方法论，就如何培养优秀企业领导者提出了与众不同的真知灼见。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>女性职场晋升手册</strong><br  />“女性领导力缺失”一直是商业世界的顽疾，与之相关的讨论常常极具争议，容易招致多方不满。近年来，尽管很多女性领导者已获得不菲的成就，但全球范围内各类机构的顶级领导中，仍难觅她们的踪影。以美国企业界为例，女性C级高层管理者只占总数的15%，董事会中也只有17%的席位属于女性。<br  />在触目惊心的数字背后，人们对此的解读众说纷纭。埃米尼亚·伊巴拉、罗宾·埃利和德博拉·科尔布三位商学院教授在《“她领导”崛起的隐形障碍》一文中指出，持续性的性别偏见，令女性成为领导的迭代过程更为艰难。致力于女性职业发展方面研究的管理大师休利特则认为，除了职场的偏见外，家庭负担严重、社会存在歧视与偏见以及女性个人上进心不足，也是造成女性难以晋升至高位的原因。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>事业生活双全法则</strong><br  />如何在工作时全力以赴，同时又保持丰富而愉悦的个人生活？这也许是当代管理者面临的最大挑战。“平衡”工作与生活是职场人士最关注的话题。然而平衡一词意味着我们要在工作和其他活动之间保持五五开。这真的是理想比例吗？本期聚光灯开篇文章的作者，哈佛商学院的鲍里斯·格鲁斯伯格和罗宾·亚伯拉罕斯认为，人们根本不可能达到这种平衡状态。管理者应该自己决定自己的生活方式，当面临选择时，他们需要深思熟虑，做出取舍。否则，他们就会顾此失彼，根本无法全身心地投入到工作或生活中。</span></p><p style="text-align: left;"><span style="font-size: 14px;"><strong>远离职场语言暴力</strong><br  />现实中我们经常会遇到一些“有病”的老板，例如病态自恋、躁狂抑郁、被动攻击和述情障碍。这严重危害了他们的事业发展，并阻碍了所在机构的运营。</span></p></section></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><p><br  /></p></section><section><p><br  /></p></section><section><section style="margin-top: 10px;margin-bottom: 10px;text-align: center;"><section style="display:inline-block;"><section style="display: flex;justify-content:center;align-items: center;transform: rotateZ(0deg);-webkit-transform: rotateZ(0deg);-moz-transform: rotateZ(0deg);-ms-transform: rotateZ(0deg);-o-transform: rotateZ(0deg);"><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section><section style="margin-right: 5px;margin-left: 5px;background-color: rgba(168, 212, 230, 0.97);padding: 2px 15px;font-size: 16px;letter-spacing: 1.5px;box-sizing: border-box;border-radius: 8px;"><span style="color: #ffffff;letter-spacing: 2px;"><strong><span style="font-size: 18px;">故事课（套装2册）</span></strong></span></section><section style="width: 10px;height: 10px;background-color: rgba(168, 212, 230, 0.97);border-radius: 50%;box-sizing: border-box;"><br  /></section></section></section><section style="margin-top:-15px;display: flex;justify-content:center;align-items: center;"><section style="width: 4%;height: 200px;background-color: rgb(255, 226, 105);border-radius: 8px 0px 0px 8px;box-sizing: border-box;" data-width="4%"><br  /></section><section style="width: 92%;box-shadow: #757575 0px 0px 5px;padding: 20px 15px 15px;background-color: #fefefe;box-sizing: border-box;" data-width="92%"><section><section style="padding-top:5px;"><p style="letter-spacing: 2px;"><img class="rich_pages wxw-img" data-ratio="1.4092592592592592" src="https://images.weserv.nl/?url=https://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic83QSrUyH89mo3TbR2XjEiaWsfx0oGclibwIDOFbBCDfiaYLl3EEb73KM3A/640?wx_fmt=jpeg" data-type="jpeg" data-w="1080" style="display: block;width:auto !important;max-width:100% !important;height:auto !important;"  /></p></section></section><p style="text-align: left;"><span style="font-size: 14px;"><br  /></span></p><p style="text-align: left;"><span style="font-size: 14px;"></span></p><h3 style="text-align: left;"><span style="font-size: 14px;">编辑推荐：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">罗振宇作序推荐：“让他们去讲道理，我们来说故事。”</span></p><p style="text-align: left;"><span style="font-size: 14px;">一场由无数脑洞故事与商业案例组成的创意大趴。</span></p><p style="text-align: left;"><span style="font-size: 14px;">一部关于影响、说服与营销的实用指南。</span></p><p style="text-align: left;"><span style="font-size: 14px;">为故事开挂，为创意开脑洞。</span></p><p style="text-align: left;"><span style="font-size: 14px;">适合中国人的故事营销教练，教你如何用故事征服世界</span></p><p style="text-align: left;"><span style="font-size: 14px;">★这是一个说好故事比写好说明书更重要的年代。未来的广告、营销、游戏，甚至更广泛的职场和商业领域，都要求我们必须擅长说故事，能不能在三分钟内打动面试官、合作伙伴、投资人或者消费者，说好故事很重要。</span></p><p style="text-align: left;"><span style="font-size: 14px;">★谁会说故事，谁就拥有世界。伟大的天才如何利用故事的力量打造自己的传奇：乔布斯、毕加索、村上春树、毛姆、褚时健……伟大的企业如何用故事塑造自我发光的容器——品牌：耐克、苹果、可口可乐、迪士尼、香奈儿……</span></p><p style="text-align: left;"><span style="font-size: 14px;">★故事是人类历史上最古老的影响力工具，也是最有说服力的沟通技巧。说故事，不是编造用来消遣娱乐的奇异情节，而是制造把人们带入其中情境，让他们跟着你一起呼吸、心跳，从而影响和说服。</span></p><p style="text-align: left;"><span style="font-size: 14px;">★作者对故事规律的探掘，对故事在现实生活中广泛应用的理解，本质上是对人性的洞察。说故事也可以通关打怪，一路升级，许荣哲就是身怀绝技的故事教练。</span></p><h3 style="text-align: left;"><span style="font-size: 14px;">作者介绍：</span></h3><p style="text-align: left;"><span style="font-size: 14px;">许荣哲</span></p><p style="text-align: left;"><span style="font-size: 14px;">故事营销高手 演讲家 小说家 编剧 导演</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆被罗辑思维盛赞为“最适合中国人的故事入门教练”</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆一年演讲邀约超过五百场</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆同时在罗辑思维、喜马拉雅开课的台湾第一人</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆多次受邀到两岸知名企业，如台积电、微软、罗辑思维、不二制油等演讲</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆曾任《联合文学》杂志主编，知名导演</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆现任「走电人」电影公司负责人，身份跨足小说、编剧、导演</span></p><p style="text-align: left;"><span style="font-size: 14px;">◆代表作《小说课》在两岸掀起故事的狂潮</span></p></section><section style="width: 4%;height: 200px;background-color: rgb(156, 219, 223);border-radius: 0px 8px 8px 0px;box-sizing: border-box;" data-width="4%"><br  /></section></section></section></section><section><section data-mpa-color="null"><section data-mpa-color="null"><section style="font-size: 16px;white-space: normal;color: #333333;letter-spacing: 0.544px;text-align: right;background-color: #ffffff;font-family: 微软雅黑;border-width: 0px;border-style: none;border-color: initial;box-sizing: border-box;"><section><section style="max-width: 100%;font-family: -apple-system-font, BlinkMacSystemFont, &quot;Helvetica Neue&quot;, &quot;PingFang SC&quot;, &quot;Hiragino Sans GB&quot;, &quot;Microsoft YaHei UI&quot;, &quot;Microsoft YaHei&quot;, Arial, sans-serif;letter-spacing: 0.544px;white-space: normal;font-size: 16px;text-align: right;background-color: rgb(255, 255, 255);box-sizing: border-box !important;overflow-wrap: break-word !important;"><p style="max-width: 100%;min-height: 1em;text-align: center;box-sizing: border-box !important;overflow-wrap: break-word !important;"><br  /></p></section></section></section></section></section></section><section><section style="margin-top:20px;width: 538px;"><strong style="color: rgb(51, 51, 51);letter-spacing: 0.544px;text-align: justify;background-color: rgb(255, 255, 255);"><span style="font-family: Optima-Regular, PingFangTC-light;font-size: 14px;color: #ab1942;"></span></strong></section></section></section>
+          </div>
+
+          <script type="text/javascript" nonce="1963225876" reportloaderror>
+            var first_sceen__time = (+new Date());
+            if ("" == 1 && document.getElementById('js_content')) {
+              document.getElementById('js_content').addEventListener("selectstart",function(e){ e.preventDefault(); });
+            }
+          </script>
+
+          
+<div id="js_sponsor_ad_area"></div>
+
+
+           
+                          
+              <div class="reward_area tc reward_area_primary reward_area_carry_whisper" id="js_reward_area" style="display:none;">
+                <div class="reward-avatar" style="display: none;" id="js_reward_avatar">
+                  <img role="link" tabindex="0" src="" aria-labelledby="js_reward_author" title="作者" id="js_reward_author_head">
+                </div>
+
+                
+                                <div class="reward-author" aria-hidden="true" style="display: none;" id="js_reward_author">布克布克</div>
+                                                <p role="option" class="reward_tips js_reward_wording">谢谢大佬打赏</p>
+                                <p class="reward_button_wrp">
+                <span id="js_author_reward_qrcode" class="reward_pop_panel">
+                  <img id="js_author_reward_qrcode_img" src="" alt="赞赏二维码">
+                  <strong>微信扫一扫赞赏作者</strong>
+                </span>
+                  <a role="button" class="reward_button weui-btn js_wx_tap_highlight" id='js_reward_link' href="##"><i class="icon_reward"></i><span id="js_reward_link_text">赞赏</span></a>
+                </p>
+
+                
+
+<div id="js_reward_whisper" class="reward_whisper_wrp" style="display: none;">
+  <div class="reward_whisper_word">已喜欢，<a id="js_show_whisper_dialog" href="javascript:;" class="reward_whisper_link">对作者说句悄悄话</a></div>
+</div>
+
+
+<div id="js_reward_whisper_dialog" style="display: none;">
+  <div class="like_comment_primary_wrp editing">
+    <div class="like_comment_primary_inner">
+      <div class="like_comment_primary_hd">
+        <div class="like_comment_primary_hd_side">
+          <button class="like_comment_primary_cancel" id="js_hide_whisper_dialog">
+            取消<i class="weui-icon-close-thin"></i>
+          </button>
+        </div>
+        <h4 class="like_comment_primary_title">发送给作者</h4>
+        <div class="like_comment_primary_hd_side">
+          <button id="js_whisper_send" class="like_comment_primary_btn" disabled="disabled">发送</button>
+        </div>
+      </div>
+      <div class="like_comment_primary_bd">
+        <textarea class="like_comment_textarea weui-textarea" placeholder="说句悄悄话" id="js_whisper_text"></textarea>
+      </div>
+      <span class="like_comment_msg" id="js_whisper_msg" style="visibility: hidden;">最多40字，当前共<span id="js_whisper_current_cnt"></span>字</span>
+    </div>
+  </div>
+  <div class="like_comment_primary_mask" id="js_whisper_dialog_mask"></div>
+</div>
+
+
+                <div id="js_reward_inner" class="reward_area_inner" style="display:none;">
+                  <p class="weui-loadmore weui-loadmore_line reward_user_tips weui-loadmore_default" id="js_reward_total_parent">
+                  <span class="weui-loadmore__tips">
+                    <a aria-labelledby="js_reward_total js_reward_total_text" href="javascript:;" id="js_reward_total" class="js_wx_tap_highlight wx_tap_link"></a>&nbsp;<span id="js_reward_total_text" aria-hidden="true">人赞赏</span>
+                  </span>
+                  </p>
+                  
+                  <div id="js_reward_list" class="reward_user_list" aria-hidden="true"></div>
+                  <div id="js_reward_pagination" class="simple_pagination" aria-hidden="true" style="display: none;">
+                  <button disabled class="btn_sp_prev js_reward_pagination_prev">上一页</button>
+                  <span class="sp_page_num_area">
+                    <a class="sp_page_current js_reward_pagination_curpage" href="javascript:;">1</a>&#47;<span class="sp_page_num js_reward_pagination_totalpage">3</span>
+                  </span>
+                  <button class="btn_sp_next js_reward_pagination_next">下一页</button>
+                  </div>
+                </div>
+              </div>
+                              <div class="reward_qrcode_area reward_area tc" id="js_reward_qrcode" style="display:none;">
+                  <p class="tips_global" aria-hidden="true" id="js_a11y_reward_qr_title">长按二维码向我转账</p>
+                                    <p role="option" aria-labelledby="js_a11y_reward_qr_word js_a11y_comma js_a11y_reward_qr_title js_a11y_reward_qr_money" aria-describedby="js_a11y_reward_qr_tips " class="reward_tips" id="js_a11y_reward_qr_word">谢谢大佬打赏</p>
+                  <span class="reward_qrcode_img_wrp"><img alt="赞赏二维码" class="reward_qrcode_img" id="js_reward_qrcode_img"></span>
+                  <p aria-hidden="true" id="js_a11y_reward_qr_tips" class="tips_global">受苹果公司新规定影响，微信 iOS 版的赞赏功能被关闭，可通过二维码转账支持公众号。</p>
+                </div>
+                                              
+                    
+        </div>
+                        <div id="js_tags_preview_toast" class="article-tag__error-tips" style="display: none;">预览时标签不可点</div>
+                
+        
+        <div id="js_album_keep_read" class="appmsg_card_context album_read_card" style="display: none;">
+          <div role="button" class="album_read_hd weui-flex" id="js_album_directory">
+            <div class="album_read_source">收录于合集 <span class="weui-link wx_tap_link js_album_directory__name">#<span id="js_album_keep_read_title"></span></span></div>
+            <span class="weui-btn__word-wrp wx_tap_link js_album_directory__size">&nbsp;<span id="js_album_keep_read_size"></span><span class="weui-hidden_abs">个</span></span>
+          </div>
+          <div class="album_read_bd weui-flex">
+            <span role="button" class="album_read_nav_item album_read_nav_prev weui-flex__item wx_tap_link js_wx_tap_highlight" id="js_album_prev">
+              <span class="album_read_nav_inner">
+                <span class="album_read_nav_btn">上一篇</span>
+                <span class="album_read_nav_title">
+                  <span class="album_read_nav_title_inner" id="js_album_keep_read_pre_title"></span>
+                </span>
+              </span>
+            </span>
+            <span role="button" class="album_read_nav_item album_read_nav_next weui-flex__item wx_tap_link js_wx_tap_highlight" id="js_album_next">
+              <span class="album_read_nav_inner">
+                <span class="album_read_nav_btn">下一篇</span>
+                <span class="album_read_nav_title">
+                  <span class="album_read_nav_title_inner" id="js_album_keep_read_next_title"></span>
+                </span>
+              </span>
+            </span>
+          </div>
+        </div>
+
+        
+
+        
+        <div id="content_bottom_area" class="rich_media_tool_area"></div>
+
+                <div class="rich_media_tool" id="js_sg_bar">
+                  </div>
+              </div>
+    </div>
+
+    <div class="rich_media_area_primary sougou" id="sg_tj" style="display:none"></div>
+
+    
+    <div class="rich_media_area_extra">
+      <div class="rich_media_area_extra_inner">
+        
+        <div class="wx_follow_container" id="js_like_profile_container"></div>
+        
+        <div class="related_container" id="js_related_container"></div>
+        
+        <div id="page_bottom_area"></div>
+      </div>
+    </div>
+
+    
+    <div id="js_pc_qr_code" class="qr_code_pc_outer" style="display:none;">
+      <div class="qr_code_pc_inner">
+        <div class="qr_code_pc">
+          <img id="js_pc_qr_code_img" class="qr_code_pc_img">
+          <p>微信扫一扫<br>关注该公众号</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<div class="comment_primary_emotion_panel_wrp" id="js_emotion_panel_pc" style="display: none">
+  <div class="comment_primary_emotion_panel">
+    <ul class="comment_primary_emotion_list_pc" id="js_emotion_list_pc">
+    </ul>
+  </div>
+</div>
+
+
+<div class="weui-dialog__wrp" id="js_alert_panel" style="display:none;">
+  <div class="weui-mask"></div>
+  <div class="weui-dialog">
+    <div class="weui-dialog__bd" id="js_alert_content"></div>
+    <div class="weui-dialog__ft">
+      <a href="javascript:;" class="weui-dialog__btn weui-dialog__btn_default" id="js_alert_confirm">知道了</a>
+    </div>
+  </div>
+</div>
+
+
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+  window.img_popup = 1; // 全量小程序弹窗
+</script>
+
+
+<div id="js_pc_weapp_code" class="weui-desktop-popover weui-desktop-popover_pos-up-center weui-desktop-popover_img-text" style="display: none;">
+  <div class="weui-desktop-popover__content">
+      <div class="weui-desktop-popover__desc">
+          <img id="js_pc_weapp_code_img">
+          微信扫一扫<br>使用小程序<span id="js_pc_weapp_code_des"></span>
+      </div>
+  </div>
+</div>
+<div id="js_minipro_dialog" role="dialog" aria-modal="true" tabindex="0" aria-labelledby="js_minipro_dialog_head" style="display:none;">
+  <div class="weui-mask"></div>
+  <div class="weui-dialog weui-dialog_link">
+      <div class="weui-dialog__hd">
+          <strong class="weui-dialog__title" id="js_minipro_dialog_head" tabindex="0"></strong>
+      </div>
+      <div class="weui-dialog__bd" id="js_minipro_dialog_body"></div>
+      
+      <div class="weui-dialog__ft">
+          <a role="button" id="js_minipro_dialog_cancel" href="javascript:void(0);" class="weui-dialog__btn weui-dialog__btn_default">取消</a>
+          <a role="button" id="js_minipro_dialog_ok" href="javascript:void(0);" class="weui-dialog__btn weui-dialog__btn_primary">允许</a>
+      </div>
+  </div>
+</div>
+<div id="js_link_dialog" role="dialog" aria-modal="true" tabindex="0" aria-labelledby="js_link_dialog_body" style="display:none;">
+  <div class="weui-mask"></div>
+  <div class="weui-dialog weui-dialog_link">
+    <div class="weui-dialog__hd">
+      <strong class="weui-dialog__title" id="js_link_dialog_head" tabindex="0"></strong>
+    </div>
+    <div class="weui-dialog__bd" id="js_link_dialog_body" tabindex="0"></div>
+    
+    <div class="weui-dialog__ft">
+      <a role="button" id="js_link_dialog_cancel" href="javascript:void(0);" class="weui-dialog__btn weui-dialog__btn_default">取消</a>
+      <a role="button" id="js_link_dialog_ok" href="javascript:void(0);" class="weui-dialog__btn weui-dialog__btn_primary">允许</a>
+    </div>
+  </div>
+</div>
+
+
+
+    <script type="text/javascript" nonce="1963225876" reportloaderror>
+window.logs.pagetime.page_begin = Date.now();
+
+// // 广告iframe预加载
+try {
+  var adIframeUrl = localStorage.getItem('__WXLS_ad_iframe_url');
+  if (window === top) {
+    if (adIframeUrl) {
+      if (navigator.userAgent.indexOf('iPhone') > -1) {
+        var img = new Image();
+        img.src = adIframeUrl;
+      } else {
+        var link = document.createElement('link');
+        link.rel = 'prefetch';
+        link.href = adIframeUrl;
+        document.getElementsByTagName('head')[0].appendChild(link);
+      }
+    }
+  }
+} catch (err) {
+
+}
+</script>
+    
+
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_colon">：</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_comma">，</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_period">。</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_space">&nbsp;</span>
+
+
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_type_video">视频</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_type_weapp">小程序</span>
+
+
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_zan_btn_txt">赞</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_zan_btn_tips">，轻点两下取消赞</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_like_btn_txt">在看</span>
+<span aria-hidden="true" class="weui-a11y_ref" style="display:none" id="js_a11y_like_btn_tips">，轻点两下取消在看</span>
+
+    <script type="text/javascript" nonce="1963225876" reportloaderror>
+(function () {
+  var totalCount = 0,
+    finishCount = 0;
+
+  function _addVConsole(uri, cb) {
+    totalCount++;
+    var node = document.createElement('SCRIPT');
+    node.type = 'text/javascript';
+    node.src = uri;
+    node.setAttribute('nonce', '1963225876');
+    if (cb) {
+      node.onload = cb;
+    }
+    document.getElementsByTagName('head')[0].appendChild(node);
+  }
+  if (
+    (document.cookie && document.cookie.indexOf('vconsole_open=1') > -1)
+    || location.href.indexOf('vconsole=1') > -1
+  ) {
+    _addVConsole('https://mp.weixin.qq.com/mmbizappmsg/zh_CN/htmledition/js/scripts/vconsole-3.14.6.js', function () {
+      var vConsole = new window.VConsole();
+    });
+  }
+
+})();
+</script>
+    
+    <script type="text/javascript" nonce="1963225876" reportloaderror>var __INLINE_SCRIPT__=function(){"use strict";var e=function(e,n){if(e.indexOf("——")>-1){e=e.replace(/——/g,'<span style="letter-spacing:normal">——</span>')}n&&(n.innerHTML=e)};if(!window.__second_open__){e("【2022.7.19】图书推荐",document.getElementById("activity-name")),window.__setTitle=e}return e}();</script><script type="text/javascript" nonce="1963225876" reportloaderror>var __INLINE_SCRIPT__=function(){"use strict";var e=function(e,t,n,i){var _=new Date(1e3*(1*t)),o=function(e){return"0".concat(e).slice(-2)},r=_.getFullYear()+"-"+o(_.getMonth()+1)+"-"+o(_.getDate())+" "+o(_.getHours())+":"+o(_.getMinutes());i&&(i.innerText=r)};if(!window.__second_open__){e(0,"1658210425",0,document.getElementById("publish_time")),window.__setPubTime=e}return e}();</script>
+
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+//兼容 IE
+if (!window.console) window.console = { log: function() {} };
+// 图片占位 @ekili
+if (typeof getComputedStyle == 'undefined') {
+  if (document.body.currentStyle) {
+    window.getComputedStyle = function(el) {
+      return el.currentStyle;
+    }
+  } else {
+    window.getComputedStyle = {};
+  }
+}
+// 图片和视频预加载逻辑，记得H5和秒开要对齐逻辑
+(function(){
+  window.__zoom = 1;
+
+  var ua = navigator.userAgent.toLowerCase();
+  var re = new RegExp("msie ([0-9]+[\.0-9]*)");
+  var version;
+  if (re.exec(ua) != null) {
+    version = parseInt(RegExp.$1);
+  }
+  var isIE = false;
+  if (typeof version != 'undefined' && version >= 6 && version <= 9) {
+    isIE = true;
+  }
+  var bodyWidth = '' * 1;
+  if (bodyWidth) {
+    var styles = getComputedStyle(document.getElementById('page-content'));
+    bodyWidth - parseFloat(styles.paddingLeft) - parseFloat(styles.paddingRight);
+  }
+  var getMaxWith = function () {
+    var container = document.getElementById('img-content');
+    var max_width = container.offsetWidth;
+    !max_width && bodyWidth && (max_width = bodyWidth);
+    var container_padding = 0;
+    var container_style = getComputedStyle(container);
+    container_padding = parseFloat(container_style.paddingLeft) + parseFloat(container_style.paddingRight);
+    max_width -= container_padding;
+    if (!max_width) {
+      max_width = window.innerWidth - 30;      //防止offsetTop不可用，30为padding
+    }
+    return max_width;
+  };
+  var getParentWidth = function (dom) {
+    var parent_width = 0;
+    var parent = dom.parentNode;
+    var outerWidth = 0;
+    while (true) {
+      if (!parent || parent.nodeType != 1) break;
+      var parent_style = getComputedStyle(parent);
+      if (!parent_style) break;
+      parent_width = parent.clientWidth - parseFloat(parent_style.paddingLeft) - parseFloat(parent_style.paddingRight) - outerWidth;
+      if (parent_width > 0) break;
+      outerWidth += parseFloat(parent_style.paddingLeft) + parseFloat(parent_style.paddingRight) + parseFloat(parent_style.marginLeft) + parseFloat(parent_style.marginRight) + parseFloat(parent_style.borderLeftWidth) + parseFloat(parent_style.borderRightWidth);
+      parent = parent.parentNode;
+    }
+    return parent_width;
+  }
+  var getOuterW = function (dom) {
+    var style = getComputedStyle(dom),
+      w = 0;
+    if (!!style) {
+      w = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth);
+    }
+    return w;
+  };
+  var getOuterH = function (dom) {
+    var style = getComputedStyle(dom),
+      h = 0;
+    if (!!style) {
+      h = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    }
+    return h;
+  };
+  var insertAfter = function (dom, afterDom) {
+    var _p = afterDom.parentNode;
+    if (!_p) {
+      return;
+    }
+    if (_p.lastChild === afterDom) {
+      _p.appendChild(dom);
+    } else {
+      _p.insertBefore(dom, afterDom.nextSibling);
+    }
+  };
+  var getQuery = function (name, url) {
+    //参数：变量名，url为空则表从当前页面的url中取
+    var u = arguments[1] || window.location.search,
+      reg = new RegExp("(^|&)" + name + "=([^&]*)(&|$)"),
+      r = u.substr(u.indexOf("\?") + 1).match(reg);
+    return r != null ? r[2] : "";
+  };
+
+  /**
+    * 设置图片size
+    *
+    * @param {HTMLElement} item             图片元素
+    * @param {number} widthNum         宽度数值
+    * @param {string} widthUnit        宽度单位
+    * @param {number} ratio            宽高比
+    * @param {boolean} breakParentWidth 是否突破父元素宽度(父元素是否被撑大)
+    */
+  function setImgSize(item, widthNum, widthUnit, ratio, breakParentWidth) {
+    setTimeout(function () {
+      var img_padding_border = getOuterW(item) || 0;
+      var img_padding_border_top_bottom = getOuterH(item) || 0;
+
+      var isAccessibilityKey = 'isMpUserAccessibility';
+      var isAccessMode = window.localStorage.getItem(isAccessibilityKey);
+
+      // 如果设置的宽度超过了父元素最大宽度，则取父元素宽度
+      if (widthNum > getParentWidth(item) && !breakParentWidth) {
+        widthNum = getParentWidth(item);
+      }
+
+      height = (widthNum - img_padding_border) * ratio + img_padding_border_top_bottom;
+
+      if (isIE || '0' === '1' || '' === '1' || isAccessMode === '1') { // 判一下是不是漫画原创，如果是，不走懒加载
+        var url = item.getAttribute('data-src');
+        item.src = url;
+
+        // 不走懒加载但是需要跟懒加载一样去除占位高度
+        item.style.height = 'auto';
+      } else {
+        if (parseFloat(widthNum, 10) > 40 && height > 40 && breakParentWidth) {
+          item.className += ' img_loading';
+        }
+        item.src = "data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==";
+        widthNum !== 'auto' && (item.style.cssText += ";width: " + widthNum + widthUnit + " !important;");
+        widthNum !== 'auto' && (item.style.cssText += ";height: " + height + widthUnit + " !important;");
+      }
+    }, 10);
+  }
+  // 图片和视频预加载逻辑，记得H5和秒开要对齐逻辑
+  (function () {
+    var images = document.getElementsByTagName('img');
+    var length = images.length;
+    var max_width = getMaxWith();
+    for (var i = 0; i < length; ++i) {
+      if (window.__second_open__ && images[i].getAttribute('__sec_open_place_holder__')) {
+        continue;
+      }
+      var imageItem = images[i];
+      var src_ = imageItem.getAttribute('data-src');
+      var realSrc = imageItem.getAttribute('src');
+      if (!src_ || realSrc) continue;
+      // 图片原始宽度
+      var originWidth = imageItem.getAttribute('data-w');
+      var ratio_ = 1 * imageItem.getAttribute('data-ratio');
+
+      var height = 100;
+      if (ratio_ && ratio_ > 0) {
+        var parent_width = getParentWidth(imageItem) || max_width;
+        var initWidth = imageItem.style.width || imageItem.getAttribute('width') || originWidth || parent_width;
+        initWidth = parseFloat(initWidth, 10) > max_width ? max_width : initWidth;
+        // 有attribute或style中的width，写入_width属性，在图片加载完成时写入img标签
+        if (initWidth) {
+          imageItem.setAttribute('_width', !isNaN(initWidth * 1) ? initWidth + 'px' : initWidth);
+        }
+        // 使用百分比，则计算出像素宽度
+        if (typeof initWidth === 'string' && initWidth.indexOf('%') !== -1) {
+          initWidth = parseFloat(initWidth.replace('%', ''), 10) / 100 * parent_width;
+        }
+        // 使用auto，就是原始宽度
+        if (initWidth === 'auto') {
+          initWidth = originWidth;
+        }
+
+        var widthNum;
+        var widthUnit;
+        if (initWidth === 'auto') {
+          widthNum = 'auto';
+        } else {
+          var res = /^(\d+(?:\.\d+)?)([a-zA-Z%]+)?$/.exec(initWidth);
+          widthNum = res && res.length >= 2 ? res[1] : 0;
+          widthUnit = res && res.length >= 3 && res[2] ? res[2] : 'px';
+        }
+
+        // 试探一下parent宽度在设置了图片的大小之后是否会变化
+        setImgSize(imageItem, widthNum, widthUnit, ratio_, true);
+        // 真正设置宽高
+        (function (item, widthNumber, unit, ratio) {
+          setTimeout(function () {
+            setImgSize(item, widthNumber, unit, ratio, false);
+          });
+        })(imageItem, widthNum, widthUnit, ratio_);
+      } else {
+        imageItem.style.cssText += ";visibility: hidden !important;";
+      }
+  }
+  })();
+  window.__videoDefaultRatio = 16 / 9;//默认值是16/9
+  window.__getVideoWh = function (dom) {
+    var max_width = getMaxWith(),
+      width = max_width,
+      ratio_ = dom.getAttribute('data-ratio') * 1,//mark16/9
+      arr = [4 / 3, 16 / 9],
+      ret = arr[0],
+      abs = Math.abs(ret - ratio_);
+    if (!ratio_) { // 没有比例
+      if (dom.getAttribute("data-mpvid")) { // MP视频
+        ratio_ = 16 / 9;
+      } else { // 非MP视频，需要兼容历史图文
+        ratio_ = 4 / 3;
+      }
+    } else { // 有比例，则判断更接近4/3还是更接近16/9
+      for (var j = 1, jl = arr.length; j < jl; j++) {
+        var _abs = Math.abs(arr[j] - ratio_);
+        if (_abs < abs) {
+          abs = _abs;
+          ret = arr[j];
+        }
+      }
+      ratio_ = ret;
+    }
+
+    var parent_width = getParentWidth(dom) || max_width,
+      width = width > parent_width ? parent_width : width,
+      outerW = getOuterW(dom) || 0,
+      outerH = getOuterH(dom) || 0,
+      videoW = width - outerW,
+      videoH = videoW / ratio_,
+      speedDotH = 12, // 播放器新样式的进度条在最下面，为了避免遮住拖动的点点，需要额外设置高一些
+      height = videoH + outerH + speedDotH;
+
+    return { w: Math.ceil(width), h: Math.ceil(height), vh: videoH, vw: videoW, ratio: ratio_, sdh: speedDotH };
+  };
+
+  // 图片和视频预加载逻辑，记得H5和秒开要对齐逻辑
+  (function () {
+    var iframe = document.getElementsByTagName('iframe');
+    for (var i = 0, il = iframe.length; i < il; i++) {
+      if (window.__second_open__ && iframe[i].getAttribute('__sec_open_place_holder__')) {
+        continue;
+      }
+      var a = iframe[i];
+      var src_ = a.getAttribute('src') || a.getAttribute('data-src') || "";
+
+      /* if (!/^http(s)*\:\/\/v\.qq\.com\/iframe\/(preview|player)\.html\?/.test(src_)
+        && !/^http(s)*\:\/\/mp\.weixin\.qq\.com\/mp\/readtemplate\?t=pages\/video_player_tmpl/.test(src_)
+      ) {
+        continue;
+      } */
+      var vid = getQuery("vid", src_) || a.getAttribute('data-mpvid');
+      if (!vid) {
+        continue;
+      }
+      vid = vid.replace(/^[\s\uFEFF\xA0]+|[\s\uFEFF\xA0]+$/g, "");//清除前后空格
+      a.removeAttribute('src');
+      a.style.display = "none";
+      var obj = window.__getVideoWh(a),
+        videoPlaceHolderSpan = document.createElement('span'),
+        videoPlayerIconSpan = document.createElement('span'),
+        mydiv = document.createElement('img');
+
+      videoPlaceHolderSpan.className = "js_img_loading db";
+      videoPlaceHolderSpan.setAttribute("data-vid", vid);
+      // videoPlaceHolderSpan.style.display = 'block';
+
+      videoPlayerIconSpan.className = 'wx_video_context db'; // 预加载的视频封面图占位
+      videoPlayerIconSpan.style.display = 'none';
+      videoPlayerIconSpan.innerHTML = '<span class="wx_video_thumb_primary"></span><button class="wx_video_play_btn">播放</button><span class="wx_video_mask"></span>'; // 曝光后设置这里img的src
+
+      mydiv.className = "img_loading";
+
+      mydiv.src = "data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==";
+      // mydiv.style.cssText += ';height:100%;width:100%;';
+      // mydiv.setAttribute("data-vid",vid);
+      videoPlaceHolderSpan.style.cssText = "width: " + obj.w + "px !important;";
+      mydiv.style.cssText += ";width: " + obj.w + "px";
+      videoPlaceHolderSpan.appendChild(videoPlayerIconSpan);
+      videoPlaceHolderSpan.appendChild(mydiv);
+
+      insertAfter(videoPlaceHolderSpan, a); // 在视频后面插入占位
+
+      /* var parentNode = a.parentNode;
+      var copyIframe = a;
+      var index = i; */
+
+      // 由于视频需要加一个转载的来源，所以这里需要提前设置高度
+      function ajax(obj) {
+        var url = obj.url;
+        var xhr = new XMLHttpRequest();
+
+        var data = null;
+        if (typeof obj.data == "object") {
+          var d = obj.data;
+          data = [];
+          for (var k in d) {
+            if (d.hasOwnProperty(k)) {
+              data.push(k + "=" + encodeURIComponent(d[k]));
+            }
+          }
+          data = data.join("&");
+        } else {
+          data = typeof obj.data == 'string' ? obj.data : null;
+        }
+
+        xhr.open('POST', url, true);
+        xhr.onreadystatechange = function () {
+          if (xhr.readyState == 4) {
+            if (xhr.status >= 200 && xhr.status < 400) {
+              obj.success && obj.success(xhr.responseText);
+            } else {
+              obj.error && obj.error(xhr);
+            }
+            obj.complete && obj.complete();
+            obj.complete = null;
+          }
+        };
+        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded; charset=UTF-8");
+        xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+        xhr.send(data);
+      }
+
+      var mid = "" || "" || "2649485996";
+      var biz = "" || "MzIzNDI0NDI2NQ==";
+      var sessionid = "" || "svr_ee896787163";
+      var idx = "";
+
+      (function sendReq(parentNode, copyIframe, index, vid) {
+        ajax({
+          url: '/mp/videoplayer?vid=' + vid + '&mid=' + mid + '&idx=1&__biz=' + biz + '&sessionid=' + sessionid + '&f=json',
+          type: "GET",
+          dataType: 'json',
+          success: function (json) {
+            var ret = JSON.parse(json || '{}');
+            var ori = ret.ori_status;
+            var hit_biz_headimg = ret.hit_biz_headimg + '/64';
+            var hit_nickname = ret.hit_nickname;
+            var hit_username = ret.hit_username;
+            var sourceBiz = ret.source_encode_biz;
+
+            var selfUserName = "gh_0e6d8c1cce17";
+
+            if (ori === 2 && selfUserName !== hit_username) {
+              var videoBar = document.createElement('div');
+              var videoBarHtml = '<div class="wx-edui-video_source_link js_wx_tap_highlight wx_tap_card" id="' + (hit_username + index) + '" data-hit-username="' + hit_username + '" data-hit-biz="' + sourceBiz + '">';
+              videoBarHtml += '<div class="wx-edui-video_source_word">以下视频来源于</div>';
+              videoBarHtml += '<div class="wx-edui-video_account_info">';
+              videoBarHtml += '<div class="wx-edui-video_account_avatar" id="' + (hit_biz_headimg + index) + '" src="https://images.weserv.nl/?url=' + hit_biz_headimg + '"></div>';
+              videoBarHtml += '<div class="wx-edui-video_account_name">' + hit_nickname + '</div>';
+              videoBarHtml += '<i class="wx-edui-video_account_arrow"></i>';
+              videoBarHtml += '</div>';
+              videoBarHtml += '<div class="wx-edui-video_source_link__layer_mask"></div>';
+              videoBarHtml += '</div>';
+              videoBar.innerHTML = videoBarHtml;
+              var spanContainer = document.getElementById('js_mp_video_container_' + index);
+              if (spanContainer) {
+                spanContainer.parentNode.insertBefore(videoBar, spanContainer);
+              } else if (parentNode.contains && parentNode.contains(copyIframe)) {
+                parentNode.insertBefore(videoBar, copyIframe);
+              } else {
+                parentNode.insertBefore(videoBar, parentNode.firstElementChild);
+              }
+              var avatorEle = document.getElementById(hit_biz_headimg + index);
+              var avatorSrc = avatorEle.dataset.src;
+              console.log('avatorSrc' + avatorSrc);
+              if (ret.hit_biz_headimg) {
+                avatorEle.style.backgroundImage = 'url(' + avatorSrc + ')';
+              }
+            }
+          },
+          error: function (xhr) {
+          }
+        });
+      })(a.parentNode, a, i, vid);
+
+      a.style.cssText += ";width: " + obj.w + "px !important;";
+      a.setAttribute("width", obj.w);
+      if (window.__zoom != 1) {
+        a.style.display = "block";
+        videoPlaceHolderSpan.style.display = "none";
+        a.setAttribute("_ratio", obj.ratio);
+        a.setAttribute("_vid", vid);
+      } else {
+        videoPlaceHolderSpan.style.cssText += "height: " + (obj.h - obj.sdh) + "px !important;margin-bottom: " + obj.sdh + "px !important;";
+        mydiv.style.cssText += "height: " + (obj.h - obj.sdh) + "px !important;";
+        a.style.cssText += "height: " + obj.h + "px !important;";
+        a.setAttribute("height", obj.h);
+      }
+      a.setAttribute("data-vh", obj.vh);
+      a.setAttribute("data-vw", obj.vw);
+      if (a.getAttribute("data-mpvid")) {
+        a.setAttribute("data-src", location.protocol + "//mp.weixin.qq.com/mp/readtemplate?t=pages/video_player_tmpl&auto=0&vid=" + vid);
+      } else {
+        a.setAttribute("data-src", location.protocol + "//v.qq.com/iframe/player.html?vid=" + vid + "&width=" + obj.vw + "&height=" + obj.vh + "&auto=0");
+      }
+    }
+  })();
+
+  (function () {
+    if (window.__zoom != 1) {
+      if (!window.__second_open__) {
+        document.getElementById('page-content').style.zoom = window.__zoom;
+        var a = document.getElementById('activity-name');
+        var b = document.getElementById('meta_content');
+        if (!!a) {
+          a.style.zoom = 1 / window.__zoom;
+        }
+        if (!!b) {
+          b.style.zoom = 1 / window.__zoom;
+        }
+      }
+      var images = document.getElementsByTagName('img');
+      for (var i = 0, il = images.length; i < il; i++) {
+        if (window.__second_open__ && images[i].getAttribute('__sec_open_place_holder__')) {
+          continue;
+        }
+        images[i].style.zoom = 1 / window.__zoom;
+      }
+      var iframe = document.getElementsByTagName('iframe');
+      for (var i = 0, il = iframe.length; i < il; i++) {
+        if (window.__second_open__ && iframe[i].getAttribute('__sec_open_place_holder__')) {
+          continue;
+        }
+        var a = iframe[i];
+        a.style.zoom = 1 / window.__zoom;
+        var src_ = a.getAttribute('data-src') || "";
+        if (!/^http(s)*\:\/\/v\.qq\.com\/iframe\/(preview|player)\.html\?/.test(src_)
+          && !/^http(s)*\:\/\/mp\.weixin\.qq\.com\/mp\/readtemplate\?t=pages\/video_player_tmpl/.test(src_)
+        ) {
+          continue;
+        }
+        var ratio = a.getAttribute("_ratio");
+        var vid = a.getAttribute("_vid");
+        a.removeAttribute("_ratio");
+        a.removeAttribute("_vid");
+        var vw = a.offsetWidth - (getOuterW(a) || 0);
+        var vh = vw / ratio;
+        var h = vh + (getOuterH(a) || 0)
+        a.style.cssText += "height: " + h + "px !important;"
+        a.setAttribute("height", h);
+        if (/^http(s)*\:\/\/v\.qq\.com\/iframe\/(preview|player)\.html\?/.test(src_)) {
+          a.setAttribute("data-src", location.protocol + "//v.qq.com/iframe/player.html?vid=" + vid + "&width=" + vw + "&height=" + vh + "&auto=0");
+        }
+        a.style.display = "none";
+        var parent = a.parentNode;
+        if (!parent) {
+          continue;
+        }
+        for (var j = 0, jl = parent.children.length; j < jl; j++) {
+          var child = parent.children[j];
+          if (child.className.indexOf("img_loading") >= 0 && child.getAttribute("data-vid") == vid) {
+            child.style.cssText += "height: " + h + "px !important;";
+            child.style.display = "";
+          }
+        }
+      }
+    }
+  })();
+})();
+</script><script type="text/javascript" nonce="1963225876" reportloaderror>!function(){"use strict";var t={defaultContentTpl:'<span class="js_img_loading db" style="width:#width#px !important;height:#height#px !important;text-indent: 0"><img style="width:#width#px !important;height:#height#px !important;border-radius:#borderRadius#px;" class="img_loading" src="data:image/gif;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg=="></span>',config:[{querySelector:"redpacketcover",genId:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return decodeURIComponent(t.node.getAttribute("data-coveruri")||"")},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return.7854*t.parentWidth},calH:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return this.calW({parentWidth:t.parentWidth})/.73346+27+37},replaceContentCssText:"",appendContentCssText:"display: inline-block;position: relative;",outerContainerLeft:'<section style="display:block;font-size:0;text-align:center;margin:16px 0;">',outerContainerRight:"</section>"},{querySelector:"qqmusic",genId:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return(t.node.getAttribute("musicid")||"").replace(/^\s/,"").replace(/\s$/,"")+"_"+t.index},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){return 88},replaceContentCssText:"",appendContentCssText:"margin:16px 0;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mpvoice",genId:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{},e=decodeURIComponent(t.node.getAttribute("voice_encode_fileid")||"").replace(/^\s/,"").replace(/\s$/,"");return e+"_"+t.index},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){return 122},replaceContentCssText:"",appendContentCssText:"margin:16px 0;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mppoi",genId:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return t.node.getAttribute("data-id")||""},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){return 219},replaceContentCssText:"",appendContentCssText:"margin:16px 0;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mpsearch",genId:function(){return decodeURIComponent("mpsearch")},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){return 100},replaceContentCssText:"",appendContentCssText:"margin:16px 0;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mpvideosnap",genId:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{},e=t.node.getAttribute("data-type")||"video";return"live"===e?decodeURIComponent(t.node.getAttribute("data-noticeid")||""):decodeURIComponent(t.node.getAttribute("data-id")||"")},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{},e=t.node.getAttribute("data-type")||"video",n=t.node.getAttribute("data-width")||"",r=t.node.getAttribute("data-height")||"";if("live"===e||"topic"===e)return t.parentWidth;var i=1,o=0,a=0,d=!1;return 1===(i=n/r)||i===3/4||(i===4/3||i===16/9?d=!0:i<3/4?i=3/4:i>1&&i<4/3?i=1:i>4/3?d=!0:("number"!=typeof i||Object.is(i,NaN))&&(i=1)),t.node.setAttribute("data-ratio",i),t.node.setAttribute("data-isHorizontal",d),o=(a=!0===d?t.parentWidth:window.innerWidth<1024?.65*window.innerWidth:.65*t.parentWidth)/i,t.node.setAttribute("data-computedWidth",a),t.node.setAttribute("data-computedHeight",o),a},calH:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{},e=t.node.getAttribute("data-desc")||"",n=t.node.getAttribute("data-type")||"video",r=t.node.getAttribute("data-computedHeight")||"";switch(n){case"live":return e?152:116;case"topic":return 201;case"image":case"video":return parseFloat(r)}},getBorderRadius:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{},e=t.node.getAttribute("data-type")||"video";return"video"===e?4:8},replaceContentCssText:"",appendContentCssText:"margin:16px auto;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mp-wxaproduct",genId:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return decodeURIComponent(t.node.getAttribute("data-wxaproduct-productid")||"")},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{},e=t.node.getAttribute("data-wxaproduct-cardtype")||"";return"mini"===e?124:466},replaceContentCssText:"",appendContentCssText:"margin:16px 0;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mpprofile",genId:function(t){return t.node.getAttribute("data-id")||""},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){return 143},replaceContentCssText:"",appendContentCssText:"margin:16px 0 16px;diplay:block;",outerContainerLeft:"",outerContainerRight:""},{querySelector:"mp-common-profile",genId:function(t){return t.node.getAttribute("data-id")||""},calW:function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};return 1*t.parentWidth},calH:function(){return 143},replaceContentCssText:"",appendContentCssText:"margin:16px 0 16px;diplay:block;",outerContainerLeft:"",outerContainerRight:""}]};!function(){var t=arguments.length>0&&void 0!==arguments[0]?arguments[0]:{};if("function"==typeof document.querySelectorAll)for(var e={maxWith:document.getElementById("img-content").getBoundingClientRect().width,idAttr:"data-preloadingid"},n=0,r=t.config.length;n<r;n++)for(var i=t.config[n],o=document.querySelectorAll(i.querySelector),a=0,d=o.length;a<d;a++){var c=o[a],u=c.parentNode.getBoundingClientRect().width;if(u=Math.min(u,e.maxWith),!c.getAttribute("has-insert-preloading")){var l=i.calW({parentWidth:u,node:c}),p=i.calH({parentWidth:u,node:c}),g=i.genId({index:a,node:c}),s="function"==typeof i.getBorderRadius?i.getBorderRadius({index:a,node:c}):8,h=t.defaultContentTpl.replace(/#height#/g,p).replace(/#width#/g,l).replace(/#borderRadius#/g,s),C=document.createElement("div");if(C.innerHTML=h,i.replaceContentCssText){var f=i.replaceContentCssText.replace(/#height#/g,p).replace(/#width#/g,l);C.firstChild.style.cssText=f}else i.appendContentCssText&&(C.firstChild.style.cssText+=i.appendContentCssText);var v=i.outerContainerLeft+C.innerHTML+i.outerContainerRight;C.innerHTML=v,C.firstChild.setAttribute(e.idAttr,g),c.parentNode.insertBefore(C.firstChild,c.nextSibling),c.setAttribute("has-insert-preloading","1")}}}(t)}();</script>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+// 白名单的class不能去除
+var whiteList = 'rich_pages,blockquote_info,blockquote_biz,blockquote_other,blockquote_article,js_jump_icon,h5_image_link,js_banner_container,js_list_container,js_cover,js_tx_video_container,js_product_err_container,js_product_loop_content,js_product_container,img_loading,list-paddingleft-1,list-paddingleft-2,list-paddingleft-3,selectTdClass,noBorderTable,ue-table-interlace-color-single,ue-table-interlace-color-double,__bg_gif,weapp_text_link,weapp_image_link,js_img_loading,wx_video_context,db,wx_video_thumb_primary,wx_video_play_btn,wx_video_mask,qqmusic_area,tc,tips_global,unsupport_tips,qqmusic_wrp,appmsg_card_context,appmsg_card_active,wx_tap_card,js_wx_tap_highlight,wx_tap_link,qqmusic_bd,play_area,icon_qqmusic_switch,pic_qqmusic_default,qqmusic_thumb,access_area,qqmusic_songname,qqmusic_singername,qqmusic_source,js_audio_frame,share_audio_context,flex_context,pages_reset,share_audio_switch,icon_share_audio_switch,share_audio_info,flex_bd,share_audio_title,share_audio_tips,share_audio_progress_wrp,share_audio_progress,share_audio_progress_inner,share_audio_progress_buffer,share_audio_progress_loading,share_audio_progress_loading_inner,share_audio_progress_handle,share_audio_desc,share_audio_length_current,share_audio_length_total,video_iframe,vote_iframe,js_editor_vote_card,res_iframe,card_iframe,js_editor_card,weapp_display_element,js_weapp_display_element,weapp_card,app_context,weapp_card_bd,weapp_card_profile,radius_avatar,weapp_card_avatar,weapp_card_nickname,weapp_card_info,weapp_card_title,weapp_card_thumb_wrp,weapp_card_ft,weapp_card_logo,js_pay_btn,pay,pay__mask,wx_video_loading,js_redpacketcover,js_uneditable,js_uneditablemouseover,js_editor_qqmusic,js_editor_audio,ct_geography_loc_tip,js_poi_entry,subsc_context,subsc_btn,reset_btn,js_subsc_btn,icon_subsc'.split(',');
+var qaClassPrefix = 'qa__';
+var whiteListReg = [
+  new RegExp("^wxw"),
+  new RegExp("^weui"),
+  new RegExp("^appmsg"),
+  new RegExp("^audio"),
+  new RegExp("^music"),
+  new RegExp("^cps_inner"),
+  new RegExp("^bizsvr_"), // 后台压缩样式
+  new RegExp("^code-snippet"), // 代码块样式
+  new RegExp("^" + qaClassPrefix), // 问答卡片样式
+  new RegExp("^wx-edui-"), // 图文编辑器相关样式统一前缀
+  new RegExp("^wx_"), // 微信样式统一前缀
+  new RegExp("^wx-"), // 微信样式统一前缀
+  new RegExp('^js_darkmode__'), // 暗黑模式统一前缀
+  new RegExp('^js_wechannel'), // 视频号统一前缀
+];
+</script>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+function htmlDecode(str) {
+  return str
+    .replace(/&#39;/g, '\'')
+    .replace(/<br\s*(\/)?\s*>/g, '\n')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&nbsp;/g, ' ');
+}
+
+var uin = '';
+var key = '';
+var pass_ticket = '';
+var new_appmsg = 1;
+var item_show_type = "0";
+var real_item_show_type = "0";
+var can_see_complaint = "0";
+var tid = "";
+var aid = "";
+var clientversion = "";
+var appuin = "" || "MzIzNDI0NDI2NQ==";
+var voiceid = "";
+
+var source = "";
+var ascene = "";
+var subscene = "";
+var sessionid = "" || "svr_ee896787163";
+var abtest_cookie = "";
+
+var scene = 75;
+
+var itemidx = "";
+var appmsg_token = "";
+var _copyright_stat = "1";
+var _ori_article_type = "文学";
+
+var is_follow = "";
+var nickname = "布克布克";
+var appmsg_type = "9";
+var ct = "1658210425";
+var user_name = "gh_0e6d8c1cce17";
+var fakeid = "";
+var version = "";
+var is_limit_user = "0";
+var round_head_img = "http://mmbiz.qpic.cn/mmbiz_png/V9NpLVfZCxjZZG4WLfL61TWWSAhxtS91llkqBMCH1SXUziakaJTGnqq0XEF4slibEPUG4JZusuYSLq5NKSCshqRQ/0?wx_fmt=png";
+var hd_head_img = "http://wx.qlogo.cn/mmhead/Q3auHgzwzM730GiaprzAeCtsGvv1F0uXLe066M8jNwqLpEHrenktiaTw/0" || "";
+var ori_head_img_url = "http://wx.qlogo.cn/mmhead/Q3auHgzwzM730GiaprzAeCtsGvv1F0uXLe066M8jNwqLpEHrenktiaTw/132";
+var msg_title = '【2022.7.19】图书推荐'.html(false);
+var msg_desc = htmlDecode("");
+var msg_cdn_url = "http://mmbiz.qpic.cn/mmbiz_jpg/V9NpLVfZCxiaMRyn7Ks0uyG0dGTQd2qic8aTYHBBJXAJ5CDfYyQiaj2OpzAsozUXCqNL8Hsz2nsj4BrEibGMFnvABA/0?wx_fmt=jpeg"; // 首图idx=0时2.35:1 ， 次图idx!=0时1:1
+var cdn_url_1_1 = ""; // 1:1比例的封面图
+var cdn_url_235_1 = ""; // 首图idx=0时2.35:1 ， 次图idx!=0时1:1
+// var msg_link = "";
+var msg_link = ""; // @radeonwu
+var user_uin = "" * 1;
+var msg_source_url = '';
+var img_format = 'jpeg';
+var srcid = '';
+var req_id = '19143prcaHviLKfM8vmthhuZ';
+var networkType;
+var appmsgid = "2649485996" || '' || '';
+var comment_id = "2493398624689946624" || "2493398624689946624" * 1;
+var comment_enabled = "" * 1;
+var open_fansmsg = "0" * 1;
+var is_https_res = ("" * 1) && (location.protocol == "https:");
+var msg_daily_idx = "1" || "";
+var profileReportInfo = "" || "";
+
+var devicetype = "";
+var source_encode_biz = ""; // 转载来源的公众号encode biz
+var source_username = "";
+// var profile_ext_signature = "" || "";
+var reprint_ticket = "";
+var source_mid = "";
+var source_idx = "";
+var source_biz = "";
+var author_id = "ofMoI4_eLkw9psyLv2HAcAvge9a8";
+
+
+// 压缩标志位
+var optimizing_flag = "0" * 1;
+
+// 广告灰度实验取消 @add by scotthuang
+// var ad_abtest_padding = "0" * 1;
+
+var show_comment = "";
+var __appmsgCgiData = {
+  wxa_product: "" * 1,
+  wxa_cps: "" * 1,
+  show_msg_voice: "0" * 1,
+  can_use_page: "" * 1,
+  is_wxg_stuff_uin: "0" * 1,
+  card_pos: "",
+  copyright_stat: "1",
+  source_biz: "",
+  hd_head_img: "http://wx.qlogo.cn/mmhead/Q3auHgzwzM730GiaprzAeCtsGvv1F0uXLe066M8jNwqLpEHrenktiaTw/0" || (window.location.protocol + "//" + window.location.host + "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/pic/pic_rumor_link5f5311.jpg"),
+  has_red_packet_cover: "0" * 1 || 0,
+  minishopCardData: ""
+};
+var _empty_v = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/audios/empty5f5311.mp3";
+var appmsg_album_info = (function () {
+  var curAlbumId = '';
+  var publicTagInfo = [
+            {
+      title: '书单',
+      size: '22' * 1,
+      link: 'https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzIzNDI0NDI2NQ==&amp;action=getalbum&amp;album_id=2321173804498485251#wechat_redirect',
+      type: '0' * 1,
+      id: 'https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzIzNDI0NDI2NQ==&amp;action=getalbum&amp;album_id=2321173804498485251#wechat_redirect' ? (('https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzIzNDI0NDI2NQ==&amp;action=getalbum&amp;album_id=2321173804498485251#wechat_redirect'.match(/[0-9]{8,}/)) ? ('https://mp.weixin.qq.com/mp/appmsgalbum?__biz=MzIzNDI0NDI2NQ==&amp;action=getalbum&amp;album_id=2321173804498485251#wechat_redirect'.match(/[0-9]{8,}/))[0] : '') : '',
+      continousReadOn: '1' * 1
+    },
+          ];
+  for (var i = 0; i < publicTagInfo.length; i++) {
+    if (curAlbumId) {
+      if (curAlbumId === publicTagInfo[i].id) {
+        return publicTagInfo[i];
+      }
+    } else {
+      if (publicTagInfo[i].continousReadOn) {
+        return publicTagInfo[i];
+      }
+    }
+  }
+  return {};
+})();
+var copyright_stat = "1" * 1;
+var hideSource = "" * 1;
+
+var pay_fee = "" * 1;
+var pay_timestamp = "";
+var need_pay = "" * 1;
+var is_pay_subscribe = "0" * 1;
+
+var need_report_cost = "0" * 1;
+var use_tx_video_player = "0" * 1;
+var appmsg_fe_filter = "contenteditable";
+
+var friend_read_source = "" || "";
+var friend_read_version = "" || "";
+var friend_read_class_id = "" || "";
+
+var is_only_read = "1" * 1;
+var read_num = "" * 1;
+var like_num = "" * 1;
+var liked = "" == 'true' ? true : false;
+var is_temp_url = "" ? 1 : 0;
+var send_time = "";
+var icon_emotion_switch = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/emotion/icon_emotion_switch5f5311.svg";
+var icon_emotion_switch_active = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/emotion/icon_emotion_switch_active5f5311.svg";
+var icon_emotion_switch_primary = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/emotion/icon_emotion_switch_primary5f5311.svg";
+var icon_emotion_switch_active_primary = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/emotion/icon_emotion_switch_active_primary5f5311.svg";
+var icon_loading_white = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/common/icon_loading_white5f5311.gif";
+var icon_audio_unread = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/audio/icon_audio_unread5f5311.png";
+var icon_qqmusic_default = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/audio/icon_qqmusic_default5f5311.png";
+var icon_qqmusic_source = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/audio/icon_qqmusic_source5f5311.svg";
+var icon_kugou_source = "//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/audio/icon_kugou_source5f5311.png";
+
+var topic_default_img = '//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/pic/pic_book_thumb5f5311.png';
+var comment_edit_icon = '//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/common/icon_edit5f5311.png';
+var comment_loading_img = '//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/common/icon_loading_white5f5311.gif';
+var comment_c2c_not_support_img = '//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/pic/pic_discuss_more5f5311.png';
+
+var voice_in_appmsg = {
+  "1": "1"
+  };
+var voiceList = {};
+voiceList={"voice_in_appmsg":[]}
+var reprint_style = '' * 1;
+var wxa_img_alert = "" != 'false';
+
+// 小程序相关数据
+var weapp_sn_arr_json = "" || "";
+
+// 视频号相关数据
+var video_snap_json = "" || "";
+// profile相关数据
+var mp_profile = [
+  ];
+
+// 能力封禁字段
+var ban_scene = "0" * 1;
+
+var svr_time = "1658213146" * 1;
+// 加迁移文章字段, 默认为false
+var is_transfer_msg = "" * 1 || 0;
+
+var malicious_title_reason_id = "0" * 1; // 标题党wording id @radeonwu
+var malicious_content_type = "0" * 1; // 标题党类型 @radeonwu
+
+// 修改错别字逻辑
+var modify_time = "";
+
+// 限制跳转到公众号profile @radeonwu
+var isprofileblock = "0";
+
+var jumpInfo = [
+    ];
+
+var hasRelatedArticleInfo = '0' * 1 || 0; // 有相关阅读的数据 @radeonwu
+var relatedArticleFlag = '' * 1 || 0; // 0不用拓展，为1时拓展3条 @yinshen
+
+var canUseAutoTypeSetting = '0' * 1 || 0; // 可以应用到自动排版样式
+window.wxtoken = "777";
+window.is_login = '' * 1; // 把上面的那段代码改一下，方便配置回退
+
+window.__moon_initcallback = function () {
+  if (!!window.__initCatch) {
+    window.__initCatch({
+      idkey: 27611 + 2,
+      startKey: 0,
+      limit: 128,
+      badjsId: 43,
+      reportOpt: {
+        uin: uin,
+        biz: biz,
+        mid: mid,
+        idx: idx,
+        sn: sn
+      },
+      extInfo: {
+        network_rate: 0.01,    //网络错误采样率
+        badjs_rate: 0.1 // badjs上报叠加采样率
+      }
+    });
+  }
+}
+window.isSg=true;
+window.sg_qr_code = "/rr?timestamp=1658213146\x26amp;src=11\x26amp;ver=1\x26amp;signature=hfAZzdprhHmYzLpsBrklBs6trMqaJslMhDXYiUVskpGvFTTtnmOqgD20P9EysPFs6CjrSqZQY1WyIovvynZLk0UMip1BW02OMWLNhg6gT6U=";
+window.sg_data = {
+  src: "11",
+  ver: "3929",
+  timestamp: "1658211340",
+  signature: "fJZg0WP7Sd6MTywKa-cle0WA43s-WGxNEp50ZbyZR338ZYeGRrjzNUSqidwCcerRhSuVAW0MHBRdfWSA3az-uRjS*YmNaCy2mO5m6Z6Rxsdz0w7HuadxxsSQkzbuN38q"
+};
+window.__moon_initcallback = function () {
+  if (!!window.__initCatch) {
+    window.__initCatch({
+      idkey: 29711,
+      startKey: 120,
+      badjsId: 63,
+      reportOpt: {
+        uin: uin,
+        biz: biz,
+        mid: mid,
+        idx: idx,
+        sn: sn
+      },
+      extInfo: {
+        network_rate: 0.01    //网络错误采样率
+      }
+    });
+  }
+};
+// msg_title != title
+var title = "布克布克";
+
+var is_new_msg = true;
+// var appmsg_like_type = "2" * 1 ? "2" * 1 : 1; //区分点赞和看一看
+// var appmsg_like_type = 2;
+
+var is_wash = '' * 1;
+var topbarEnable = false;
+var enterid = "" * 1 || "" * 1 || parseInt(Date.now() / 1000);
+var reloadid = '' * 1 || parseInt(Date.now() / 1000); // 视频落地页连续播放id
+var reloadseq = '' * 1 || 1; // 连续播放序号
+// var appid_list = ""; // 改图文所在的小程序的appid列表，只在小程序中使用
+var miniprogram_appid = ""; // 该图文所在的小程序的appid
+
+var defaultAvatarUrl = '//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/icon/icon_avatar_default.svg';
+
+document.addEventListener('DOMContentLoaded', function () {
+  window.domCompleteTime = Date.now();
+});
+
+// 记录是否有转载推荐语
+      var hasRecommendMsg = 0;
+  ;
+// 付费阅读
+var isPayTopic = '' * 1;
+  var payTopicPrice = '' * 1;
+var isRemovedFromPayTopic = '' * 1;
+var isPaySubscribe = '0' * 1; // 是否付费文章
+var isPaid = '0' * 1; // 是否已付费
+var isRefund = '' * 1; // 是否已退款
+var payShowIAPPrice = 1; // 是否启用IAP价格显示，用于外币显示
+var payProductId = '' || ''; // 付费金额对应商品ID，用于iOS多币种金额IAP查询
+var previewPercent = '0' || ''; // 试读比例
+var payGiftsCount = '0' * 1 || 0; // 付费赠送数量
+var payFreeGift = '' * 1 || 0; // 是否是领取付费赠送的用户
+var is_finished_preview = 0; // 是否试读完
+var jump2pay = '' * 1; // 是否跳转到支付按钮的位置
+
+var isFans; // getext里获取数据再塞到这里
+var is_need_reward = (isPaySubscribe && !isPaid) ? 0 : "1" * 1; // 非付费不可赞赏
+var is_teenager = '' * 1 || 0; //是否处于青少年模式
+var is_care_mode = '' * 1 || 0; //是否处于关怀模式
+
+// 段落投诉
+var anchor_tree_msg = '';
+// Dark Mode
+var colorScheme = ''; // ''|'dark'|'light', 空表示跟随系统
+
+var iapPriceInfo = {
+  };
+var productPayPackage = {
+    iap_price_info: iapPriceInfo
+};
+
+// 漫画原创
+var isCartoonCopyright = '0' * 1; // 是否漫画原创
+
+// 图文朗读
+var show_msg_voice = '' * 1;
+var qnaCardData = '';
+var exptype = '' || '';
+var expsessionid = '' || '';
+
+// 留言相关
+var goContentId = '';
+var goReplyId = '';
+
+var show_related_article = '' * 1; // 是否强制出相关阅读
+
+var wwdistype = ''; // 企微场景，industrynews表示行业资讯
+
+// 腾讯视频相关
+window.cgiData = {
+  appImg: '//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/images/pic/pic_tencent_video5f5311.png',
+}
+
+window.ip_wording = {
+  countryName: '中国',
+  countryId: '156',
+  provinceName: '山东',
+  provinceId: '',
+  cityName: '',
+  cityId: ''
+};
+window.show_ip_wording = '1' * 1;
+</script><script type="text/javascript" nonce="1963225876" reportloaderror>var __INLINE_SCRIPT__=function(){"use strict";var n=function(n){var i=document.getElementById("js_ip_wording_wrp"),o=document.getElementById("js_ip_wording");if(n&&(window.ip_wording={countryName:n.country_name,countryId:n.country_id,provinceName:n.province_name}),window.ip_wording&&i&&o){var r=function(n){var i="";return 156===parseInt(n.countryId,10)?i=n.provinceName:n.countryId&&(i=n.countryName),i}(window.ip_wording);""!==r&&(o.innerHTML=r,i.style.display="inline-block")}};return window.__second_open__||(n(),window.__setIpWording=n),n}();</script><script type="text/javascript" nonce="1963225876" reportloaderror>!function(){"use strict";function e(e,t){if(!(e instanceof t))throw new TypeError("Cannot call a class as a function")}function t(e,t){for(var n=0;n<t.length;n++){var o=t[n];o.enumerable=o.enumerable||!1,o.configurable=!0,"value"in o&&(o.writable=!0),Object.defineProperty(e,o.key,o)}}function n(e,t){return n=Object.setPrototypeOf||function(e,t){return e.__proto__=t,e},n(e,t)}function o(e){return o="function"==typeof Symbol&&"symbol"==typeof Symbol.iterator?function(e){return typeof e}:function(e){return e&&"function"==typeof Symbol&&e.constructor===Symbol&&e!==Symbol.prototype?"symbol":typeof e},o(e)}function i(e,t){if(t&&("object"===o(t)||"function"==typeof t))return t;if(void 0!==t)throw new TypeError("Derived constructors may only return object or undefined");return function(e){if(void 0===e)throw new ReferenceError("this hasn't been initialised - super() hasn't been called");return e}(e)}function r(e){return r=Object.setPrototypeOf?Object.getPrototypeOf:function(e){return e.__proto__||Object.getPrototypeOf(e)},r(e)}function c(e){var t=function(){if("undefined"==typeof Reflect||!Reflect.construct)return!1;if(Reflect.construct.sham)return!1;if("function"==typeof Proxy)return!0;try{return Boolean.prototype.valueOf.call(Reflect.construct(Boolean,[],(function(){}))),!0}catch(e){return!1}}();return function(){var n,o=r(e);if(t){var c=r(this).constructor;n=Reflect.construct(o,arguments,c)}else n=o.apply(this,arguments);return i(this,n)}}if(!window.__second_open__&&window.Darkmode){var m=0;window.Darkmode.extend([(a=0,s&&s.front_end_additional_fields&&s.front_end_additional_fields.is_auto_type_setting&&(a=s.front_end_additional_fields.is_auto_type_setting),function(o){var i=!1,r=document.querySelectorAll("#js_content")[0],m={appmsgid:window.appmsgid,pointerEvents:!1,heightAnimate:!1},s=function(e,t){return 1===e.length&&e[0].tagName&&e[0].tagName.toLowerCase()===t};return function(o){!function(e,t){if("function"!=typeof t&&null!==t)throw new TypeError("Super expression must either be null or a function");e.prototype=Object.create(t&&t.prototype,{constructor:{value:e,writable:!0,configurable:!0}}),Object.defineProperty(e,"prototype",{writable:!1}),t&&n(e,t)}(l,o);var p,u,f,d=c(l);function l(){return e(this,l),d.apply(this,arguments)}return p=l,(u=[{key:"afterConvertNode",value:function(e){if(!this.loopTimes){if(!i){var t=navigator.userAgent;/(iPhone|iPad|iPod|iOS|mac\sos)/i.test(t)&&r.classList.add("fix_apple_default_style"),i=!0}if("animate"===e.tagName&&"height"===e.getAttribute("attributeName")){var n=e.getAttribute("repeatCount");("indefinite"===n||n>"10")&&"click"!==e.getAttribute("begin")&&"click"!==e.getAttribute("end")&&(e.setAttribute("repeatCount","undefined"),e.setAttribute("attributeName","undefined"),(new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=306525_1_1")}if(1===a)try{var o=e.parentNode.id;if(("js_content"===o||"js_secopen_content"===o)&&"p"===e.tagName.toLowerCase()){var c=e.childNodes;""===e.textContent&&(s(c,"br")||1===c.length&&s(c[0].childNodes,"br"))&&(e.previousElementSibling.style.marginBottom="0em",e.style.marginBottom="0em")}}catch(e){if("undefined"!=typeof WX_BJ_REPORT&&WX_BJ_REPORT.BadJs){var p=JSON.stringify(m);WX_BJ_REPORT.BadJs.report("domFilter",p,{mid:"mmbizwap:domMonitor",view:"wap_appmsg"})}}}}}])&&t(p.prototype,u),f&&t(p,f),Object.defineProperty(p,"prototype",{writable:!1}),l}(o)})]),window.Darkmode.run(document.querySelectorAll("#js_content *"),{mode:"",defaultDarkBgColor:"",error:function(){(new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_0_1"},begin:function(e){(new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_2_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_4_1"),m=1*new Date},showFirstPage:function(){m=1*new Date-m;var e=0===(document.documentElement.scrollTop||window.pageYOffset||document.body.scrollTop);m<=10?((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_6_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_13_1")):m>10&&m<=20?((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_7_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_14_1")):m>20&&m<=30?((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_8_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_15_1")):m>30&&m<=40?((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_9_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_16_1")):m>40&&m<=50?((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_10_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_17_1")):m>50&&m<=60?((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_11_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_18_1")):((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_12_1",e&&((new Image).src="https://mp.weixin.qq.com/mp/jsmonitor?idkey=125617_19_1"))}}),document.getElementById("js_content").style.visibility="visible"}var s,a}();</script>
+
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+(function(_g){
+    _g.appmsg_like_type = "2" * 1 ? "2" * 1 : 1;
+    // _g.appmsg_like_type = 2;
+    _g.clientversion = "";
+    _g.passparam = ""; // 看一看带参数
+    if(!_g.msg_link) {
+      _g.msg_link = "";
+    }
+    _g.appmsg_type = "9"; // 后台图文消息类型
+    _g.devicetype = ""; // devicetype
+})(window);
+</script>
+
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+// 企业微信里置灰公众号名称
+(function() {
+  var ua = window.navigator.userAgent;
+  if (/MicroMessenger\/([\d\.]+)/i.test(ua) && /wxwork/i.test(ua)) {
+    var profileName = document.getElementById('js_name');
+    var authorName = document.getElementById('js_author_name');
+    var accountNames = document.getElementsByClassName('account_nickname_inner');
+    if (profileName) {
+      profileName.classList.add('tips_global_primary');
+    }
+    if (authorName) {
+      authorName.classList.add('tips_global_primary');
+    }
+    if (accountNames && accountNames.length) {
+      accountNames[0].classList.add('tips_global_primary');
+    }
+  }
+})();
+</script>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+// 安卓插入米大师 h5 sdk
+(function() {
+  var ua = navigator.userAgent;
+  if (ua.indexOf("MicroMessenger") != -1 && ua.indexOf("Android") != -1){
+    var script = document.createElement('script');
+    var head = document.getElementsByTagName('head')[0];
+    script.type = 'text/javascript';
+    script.src = "https://midas.gtimg.cn/h5sdk/js/api/h5sdk.js";
+    head.appendChild(script);
+  }
+})();
+</script>
+<script type="text/javascript" nonce="1963225876" reportloaderror>
+var real_show_page_time = +new Date();
+if (!!window.addEventListener){
+  window.addEventListener("load", function(){
+    window.onload_endtime = +new Date();
+  });
+}
+</script>
+
+<script nomodule nonce="1963225876" reportloaderror>new Image().src='https://mp.weixin.qq.com/mp/jsmonitor?idkey=66881_111_1&t='+Math.random();</script>
+
+    
+
+
+<script nomodule nonce="1963225876" reportloaderror>!function(){var e=document,t=e.createElement("script");if(!("noModule"in t)&&"onbeforeload"in t){var n=!1;e.addEventListener("beforeload",(function(e){if(e.target===t)n=!0;else if(!e.target.hasAttribute("nomodule")||!n)return;e.preventDefault()}),!0),t.type="module",t.src=".",e.head.appendChild(t),t.remove()}}();</script>
+<script nomodule id="vite-legacy-polyfill" src="//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/polyfills-legacy.d1f01a35.js" nonce="1963225876" reportloaderror></script>
+<script nomodule id="vite-legacy-entry" src="https://images.weserv.nl/?url=//res.wx.qq.com/mmbizappmsg/zh_CN/htmledition/js/assets/appmsg-legacy.l5qfyd5x44aba2eb.js" nonce="1963225876" reportloaderror>System.import(document.getElementById('vite-legacy-entry').getAttribute('data-src'))</script>
+
+  </body>
+</html>
+
+
